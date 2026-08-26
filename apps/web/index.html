@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
+  <title>双手剑 · 实时战斗日志</title>
+  <link rel="stylesheet" href="./theme-ro.css?v=runtime-retention-1">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><img src="./assets/player-knight.png" alt=""><div><strong>晴空冒险日志</strong><small>双手剑构筑验证</small></div></div>
+      <nav aria-label="主导航">
+        <button type="button">首页</button>
+        <button type="button" class="active">战斗日志</button>
+        <button type="button" disabled>战斗规则<small>后续</small></button>
+        <button type="button" disabled>精通盘<small>后续</small></button>
+        <button type="button" disabled>技能构筑<small>后续</small></button>
+      </nav>
+      <div class="sidebar-build">
+        <small>当前武器</small><strong>双手剑</strong><span>A1 敏捷骑士</span>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="page-header">
+        <div><p>LIVE BATTLE</p><h1>实时战斗</h1></div>
+        <div class="header-meta">
+          <span><small>构筑</small>A1 敏捷骑士</span>
+          <span><small>雷达半径</small>30m</span>
+          <span><small>时间</small><b id="clock">0.0s</b></span>
+        </div>
+      </header>
+
+      <section class="viewport-panel" aria-label="雷达与战斗视域">
+        <div class="encounter-grid">
+          <section class="radar-wrap">
+            <div class="radar-head"><span>草原战斗雷达 <small id="waveText">第 1 波</small></span><b id="encounterPhase">扫描中</b></div>
+            <div class="radar" id="radar">
+              <div class="radar-floats" id="radarFloats"></div>
+              <i class="radar-sweep"></i>
+              <i class="radar-ring ring-1"></i><i class="radar-ring ring-2"></i><i class="radar-ring ring-3"></i>
+              <i class="future-range"></i><i class="attack-range" id="attackRange"></i>
+              <i class="radar-axis axis-x"></i><i class="radar-axis axis-y"></i>
+              <div id="radarUnits"></div>
+              <span class="radar-player"><img src="./assets/player-knight.png" alt="玩家"></span>
+              <small class="range-label range-10">10m</small><small class="range-label range-20">20m</small><small class="range-label range-24">24m</small><small class="range-label range-30">30m</small>
+            </div>
+          </section>
+          <div class="encounter-view">
+            <div class="player-summary">
+              <img src="./assets/player-knight.png" alt="双手剑持有者">
+              <div><small>玩家</small><strong>双手剑持有者</strong><span id="playerStatus">HP 100/100 · 斗气 0/100</span></div>
+              <b id="playerLifeState">战斗中</b><b id="aliveCount">存活 0 / 4</b>
+            </div>
+            <div class="player-floats" id="playerFloats"></div>
+            <div class="roster-title"><span>目标列表</span><small>按距离自动锁定</small></div>
+            <div id="enemyRoster" class="enemy-roster">
+              <div class="empty-roster">正在扫描草原...</div>
+            </div>
+            <div class="bars">
+              <label>玩家生命 <span id="playerHpText">100 / 100</span><i><b id="playerHpBar" class="hp-player"></b></i></label>
+              <label>A系斗气 <span id="spiritText">0 / 100</span><i><b id="spiritBar" class="spirit"></b></i></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="战斗统计">
+        <article><span>输出 DPS</span><strong id="dpsMetric">0</strong><small id="totalMetric">总伤害 0</small></article>
+        <article><span>暴击率</span><strong>0.0%</strong><small>暴击 0 / 命中 <b id="hitMetric">0</b></small></article>
+        <article><span>平均伤害</span><strong id="avgMetric">0</strong><small>最大 <b id="maxMetric">0</b> / 最小 <b id="minMetric">0</b></small></article>
+        <article><span>命中率</span><strong id="accuracyMetric">0.0%</strong><small>命中 <b id="hitDetail">0</b> / 尝试 <b id="attemptMetric">0</b></small></article>
+        <article><span>自动斩击</span><strong id="slashMetric">0</strong><small>独立内部计时</small></article>
+        <article><span>灵气剑</span><strong id="auraMetric">0</strong><small id="auraState">等待斗气满值</small></article>
+      </section>
+
+      <section class="aura-panel">
+        <div><span>光环 / 状态</span><small>服务器状态快照</small></div>
+        <span id="auraChip" class="state-chip inactive">灵气剑超频 · 未激活</span>
+        <span class="state-chip">A1 基础入口 · 5/30</span>
+        <span id="runtimeHealth" class="state-chip runtime-health">运行缓存 · 初始化</span>
+      </section>
+
+      <section class="loadout-lab-panel" id="loadoutLab" aria-label="武器构筑验证台">
+        <header class="loadout-lab-head">
+          <div><p>AUTHORITATIVE LOADOUT</p><h2>武器构筑验证台</h2><span>背包实例 → 五孔关系 → 辅助连接 → 精通分配 → 服务器编译快照</span></div>
+          <div class="loadout-authority-actions"><button id="resetLoadoutBtn" type="button">恢复基准</button><button id="runAcceptanceBtn" type="button">一键联合验收</button></div><div class="loadout-authority-status"><b id="authorityVersion">Loadout v1</b><strong id="authorityReady" class="ready">可进入战斗</strong><span id="loadoutCommandState" class="accepted">服务器确认成功</span></div>
+        </header>
+
+        <div class="loadout-lab-grid">
+          <aside class="weapon-instance-card">
+            <small id="weaponEquipState">已穿戴武器实例</small>
+            <div class="weapon-glyph">⚔</div>
+            <h3 id="authorityWeaponName">双手剑</h3>
+            <code>weapon-instance-a1-demo</code>
+            <p>武器决定技能池、精通盘，并携带 2 个当前测试用武器技能。</p>
+            <div><span>灵气剑</span><span>骑乘</span></div><button id="weaponToggleBtn" type="button" class="weapon-toggle">卸下武器</button>
+          </aside>
+
+          <div class="loadout-workbench">
+            <div class="workbench-title"><div><small>WEAPON SOCKETS</small><h3>武器五孔</h3></div><span>先点孔位，再从背包装入；点击 × 卸下</span></div>
+            <div id="authoritySockets" class="authority-sockets"></div>
+
+            <div class="workbench-title inventory-title"><div><small>SKILL INVENTORY</small><h3>技能卡背包</h3></div><span>只有镶嵌在武器上的技能进入循环</span></div>
+            <div id="skillInventory" class="skill-inventory"></div>
+
+            <div class="support-workbench">
+              <div><small>SUPPORT CONNECTION</small><h3>辅助卡连接</h3><span id="selectedSocketLabel">当前目标：孔 1</span></div>
+              <div id="authoritySupports" class="authority-supports"></div>
+            </div>
+          </div>
+
+          <aside class="compiled-snapshot-card">
+            <div><small>SERVER SNAPSHOT</small><h3>权威构筑快照</h3></div>
+            <dl>
+              <div><dt>构筑哈希</dt><dd id="authorityHash">计算中</dd></div>
+              <div><dt>技能卡</dt><dd id="authoritySocketCount">5 / 5</dd></div>
+              <div><dt>武器技能</dt><dd id="authorityWeaponSkills">2 个</dd></div>
+              <div><dt>生效修改</dt><dd id="authorityModifierCount">0 条</dd></div>
+              <div><dt>最终斩击</dt><dd id="authorityFinalSlash">250ms · 1.00×</dd></div>
+            </dl>
+            <p>浏览器只发送“装入、卸下、连接、点盘”命令；最终数值和哈希由服务端重建。</p>
+          </aside>
+        </div>
+
+        <div class="mastery-workbench">
+          <header><div><small>WEAPON MASTERY</small><h3>双手剑精通盘验证</h3></div><b id="masterySpent">5 / 30 点</b><div><button id="masteryBaseBtn" type="button">基础路线</button><button id="masteryFullBtn" type="button">完整 30 点</button></div></header>
+          <div id="masteryTrack" class="mastery-track"></div>
+        </div>
+
+        <div class="joint-acceptance-grid">
+          <section class="acceptance-front">
+            <header><small>FRONTEND RELATIONSHIP</small><h3>① 前端穿戴关系验收</h3><span id="acceptanceState">等待操作</span></header>
+            <ol class="acceptance-checks">
+              <li id="frontCheckWeapon"><i>1</i><div><b>武器穿戴</b><small>卸下后禁止战斗，重新穿戴后恢复武器自己的五孔构筑</small></div><strong>待验证</strong></li>
+              <li id="frontCheckSkill"><i>2</i><div><b>技能卡穿戴</b><small>技能实例只能通过五孔关系进入服务器编译列表</small></div><strong>待验证</strong></li>
+              <li id="frontCheckSupport"><i>3</i><div><b>辅助卡连接</b><small>辅助卡连接技能实例，随技能移孔保持，不直接写最终数值</small></div><strong>待验证</strong></li>
+            </ol>
+          </section>
+          <section class="acceptance-backend">
+            <header><small>SERVER EFFECT PROOF</small><h3>② 后端技能与辅助卡生效证据</h3><span id="backendProofState">实时快照</span></header>
+            <div class="effect-table-wrap"><table class="effect-table"><thead><tr><th>已装技能</th><th>无辅助基准</th><th>服务器最终值</th><th>辅助卡来源</th></tr></thead><tbody id="backendSkillRows"></tbody></table></div>
+            <div id="backendModifierEvidence" class="modifier-evidence"></div>
+            <div id="backendBattleProof" class="battle-proof">等待构筑进入战斗运行时</div>
+          </section>
+        </div>
+        <ol id="acceptanceLog" class="acceptance-log" aria-live="polite"></ol>
+      </section>
+      <section class="timing-lab-panel" id="timingLab" aria-label="战斗时序测试场">
+        <header class="timing-lab-head">
+          <div><p>COMBAT TIMING LAB</p><h2>战斗时序测试场</h2><span>第 1 步可执行验收 · 所有数值来自公共结算模块</span></div>
+          <div class="timing-rule-chips">
+            <span><small>默认 GCD</small><b>500ms</b></span>
+            <span><small>常规属性影响</small><b>禁止</b></span>
+            <span><small>打断来源</small><b>敌方控制</b></span>
+          </div>
+        </header>
+
+        <div class="timing-case-tabs" id="timingCaseTabs" aria-label="测试用例"></div>
+
+        <div class="timing-lab-grid">
+          <div class="timing-stage">
+            <div class="timing-stage-head">
+              <div><small>当前用例</small><h3 id="timingCaseTitle">500ms 公共释放锁</h3><p id="timingCaseDescription"></p></div>
+              <b id="timingCaseState">待运行</b>
+            </div>
+
+            <div class="timing-arena">
+              <div class="timing-actor player ready" id="timingPlayer">
+                <div class="timing-avatar"><img src="./assets/player-knight.png" alt="测试角色"><i></i></div>
+                <strong>双手剑持有者</strong>
+                <span id="timingPlayerState">准备就绪</span>
+              </div>
+              <div class="timing-effect-line"><i></i><span>12m 测试距离</span></div>
+              <div class="timing-actor enemy">
+                <div class="timing-avatar"><img src="./assets/monster-mushroom.png" alt="眩晕蘑菇"><i></i></div>
+                <strong>眩晕蘑菇</strong>
+                <span id="timingEnemyState">待机</span>
+              </div>
+            </div>
+
+            <div class="timing-bars">
+              <label><span>公共释放锁（GCD）</span><b id="timingGcdValue">READY</b><i><em id="timingGcdFill" class="gcd"></em></i></label>
+              <label><span id="timingCastLabel">等待技能</span><b>施放时序</b><i><em id="timingCastFill" class="cast"></em></i></label>
+              <label><span>测试资源 · 斗气</span><b id="timingResourceValue">100 / 100</b><i><em id="timingResourceFill" class="resource"></em></i></label>
+            </div>
+
+            <div class="timing-enemy-skill">
+              <img src="./assets/monster-mushroom.png" alt="">
+              <div><small>敌方技能配置</small><strong id="timingEnemySkill">眩晕孢子 · 1.0s 眩晕 · 可打断</strong></div>
+              <span>Stun</span>
+            </div>
+          </div>
+
+          <aside class="timing-console">
+            <div class="timing-console-head">
+              <div><strong>用例事件</strong><small>按服务器时序顺序写入</small></div>
+              <button type="button" id="runTimingCase">运行测试</button>
+            </div>
+            <div class="timing-event-log" id="timingEventLog" aria-live="polite"></div>
+            <footer><span><i></i>通过：事件顺序稳定</span><span>引导 Tick ≠ GCD</span></footer>
+          </aside>
+        </div>
+      </section>
+
+      <div class="lower-grid">
+      <section class="log-panel">
+        <div class="log-toolbar">
+          <div><h2>战斗日志</h2><span id="logSummary">等待战斗开始</span></div>
+          <div class="toolbar-controls">
+            <label class="switch"><input id="autoScroll" type="checkbox" checked><span></span>自动滚动</label>
+            <div class="speed-controls" aria-label="模拟速度">
+              <button type="button" data-speed="1" class="active">1×</button><button type="button" data-speed="2">2×</button><button type="button" data-speed="4">4×</button><button type="button" data-speed="16">16× 压测</button>
+            </div>
+            <button id="cleanupBtn" class="button secondary" type="button">立即压缩（可选）</button>
+            <button id="resetBtn" class="button secondary" type="button">重置</button>
+            <button id="startBtn" class="button primary" type="button">开始战斗</button>
+          </div>
+        </div>
+        <div class="log-head"><span>时间</span><span>来源</span><span>事件</span><span>目标</span><span>数值</span></div>
+        <div id="eventLog" class="event-log" aria-live="polite">
+          <div class="empty-log"><strong>尚无战斗事件</strong><span>点击“开始战斗”后，自动释放序列会实时写入这里。</span></div>
+        </div>
+      </section>
+
+      <section class="loadout-panel">
+        <div class="loadout-title"><div><h2>本次构筑</h2><span>武器决定技能限制与精通盘</span></div><strong id="compileStatus">构筑已编译</strong></div>
+        <div id="skillBar" class="skill-bar" aria-label="技能栏"></div>
+        <div class="support-area">
+          <span>斩击辅助卡</span>
+          <div id="supportCards"></div>
+          <p id="compiledSlash">最终斩击：572ms · 1.64×</p>
+        </div>
+      </section>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="./battle-ro.js?v=runtime-retention-1"></script>
+  <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
+  <script type="module" src="./loadout-lab.js?v=authoritative-loadout-2"></script>
+</body>
+</html>
