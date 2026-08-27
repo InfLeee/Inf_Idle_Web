@@ -1,8 +1,9 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=local-save-v0-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=inventory-v0-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
+import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
 import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=local-save-v0-1";
+import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=inventory-v0-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -29,6 +30,11 @@ let requestSerial = 1;
 let acceptanceProof = { weapon: false, skill: false, support: false };
 const weaponStatesSeen = new Set();
 let acceptanceMessages = [];
+let inventoryFilter = "all";
+let inventoryQuery = "";
+let selectedInventoryInstanceId = null;
+const lockedInventoryInstanceIds = Object.freeze(["weapon-instance-a1-demo"]);
+const INVENTORY_DRAG_TYPE = "application/x-inf-idle-item";
 
 function requestId(kind) {
   return `loadout-ui-${kind}-${requestSerial++}`;
@@ -124,6 +130,136 @@ function setMastery(nodeIds, label) {
   }
 }
 
+function inventoryStatusLabel(entry) {
+  if (entry.occupancy === "equipped") return "装备中";
+  if (entry.occupancy === "socketed") return `已镶嵌 · 孔 ${entry.socketIndex + 1}`;
+  if (entry.occupancy === "connected") return "已连接";
+  return "空闲";
+}
+
+function inventoryKindLabel(kind) {
+  return { weapon: "武器", skill: "技能卡", support: "辅助卡" }[kind] ?? kind;
+}
+
+function inventoryGlyph(kind) {
+  return { weapon: "⚔", skill: "✦", support: "◇" }[kind] ?? "?";
+}
+
+function inventoryEntries() {
+  return deriveInventoryEntries(snapshot, { lockedInstanceIds: lockedInventoryInstanceIds });
+}
+
+function updateDevDefinitionOptions(registry) {
+  const kind = $("devItemKind").value;
+  const definitions = kind === "weapon"
+    ? Object.values(registry.weapons)
+    : kind === "skill"
+      ? Object.values(registry.skills).filter((item) => item.sourceType === "skill_card")
+      : Object.values(registry.supports);
+  const previous = $("devItemDefinition").value;
+  $("devItemDefinition").innerHTML = definitions.map((item) => `<option value="${item.id}">${item.name}</option>`).join("");
+  if (definitions.some((item) => item.id === previous)) $("devItemDefinition").value = previous;
+}
+
+function renderInventoryDetail(entries) {
+  const entry = entries.find((item) => item.instanceId === selectedInventoryInstanceId);
+  if (!entry) {
+    $("inventoryDetail").innerHTML = "<small>ITEM DETAIL</small><h3>选择一个物品</h3><p>点击查看来源与占用关系；拖到武器区或五孔完成操作。</p>";
+    return;
+  }
+  const occupied = entry.occupiedByWeaponInstanceId ?? "无";
+  $("inventoryDetail").innerHTML = `<small>${inventoryKindLabel(entry.kind).toUpperCase()} DETAIL</small><h3>${entry.name}</h3><p>${entry.locked ? "开发基准资产已锁定；" : "可用资产；"}${inventoryStatusLabel(entry)}。</p><dl>
+    <div><dt>实例 ID</dt><dd>${entry.instanceId}</dd></div><div><dt>定义 ID</dt><dd>${entry.definitionId}</dd></div>
+    <div><dt>等级 / 品质</dt><dd>${entry.level ?? "—"} / ${entry.quality ?? "—"}</dd></div><div><dt>占用武器</dt><dd>${occupied}</dd></div>
+  </dl>`;
+}
+
+function renderBackpack(registry) {
+  const entries = inventoryEntries();
+  if (selectedInventoryInstanceId && !entries.some((item) => item.instanceId === selectedInventoryInstanceId)) {
+    selectedInventoryInstanceId = null;
+  }
+  const visible = filterInventoryEntries(entries, { kind: inventoryFilter, query: inventoryQuery });
+  $("inventoryVisibleCount").textContent = `${visible.length} / ${entries.length}`;
+  $("inventoryGrid").innerHTML = visible.length ? visible.map((entry) => {
+    const occupancyClass = entry.occupancy === "equipped" ? "equipped" : entry.occupancy === "available" ? "" : "occupied";
+    return `<button type="button" draggable="true" class="inventory-item ${occupancyClass} ${entry.locked ? "locked" : ""} ${selectedInventoryInstanceId === entry.instanceId ? "selected" : ""}" data-inventory-instance="${entry.instanceId}">
+      <span class="item-icon">${inventoryGlyph(entry.kind)}</span><div><strong>${entry.name}</strong><small>${entry.instanceId}</small><small>${inventoryKindLabel(entry.kind)} · ${inventoryStatusLabel(entry)}</small></div><em>${entry.locked ? "锁定 · " : ""}${inventoryStatusLabel(entry)}</em>
+    </button>`;
+  }).join("") : '<div class="inventory-empty">没有符合当前分类与搜索条件的物品</div>';
+  $("inventoryGrid").querySelectorAll("[data-inventory-instance]").forEach((node) => {
+    node.addEventListener("click", () => {
+      selectedInventoryInstanceId = node.dataset.inventoryInstance;
+      renderBackpack(registry);
+    });
+    node.addEventListener("dragstart", (event) => {
+      const entry = entries.find((item) => item.instanceId === node.dataset.inventoryInstance);
+      const payload = JSON.stringify({ kind: entry.kind, instanceId: entry.instanceId });
+      event.dataTransfer.setData(INVENTORY_DRAG_TYPE, payload);
+      event.dataTransfer.setData("text/plain", payload);
+      event.dataTransfer.effectAllowed = "move";
+      node.classList.add("dragging");
+    });
+    node.addEventListener("dragend", () => node.classList.remove("dragging"));
+  });
+  renderInventoryDetail(entries);
+  updateDevDefinitionOptions(registry);
+  const weaponDropZone = $("weaponEquipDropZone");
+  weaponDropZone.ondragover = (event) => { event.preventDefault(); weaponDropZone.classList.add("inventory-drop-ready"); };
+  weaponDropZone.ondragleave = () => weaponDropZone.classList.remove("inventory-drop-ready");
+  weaponDropZone.ondrop = (event) => {
+    event.preventDefault();
+    weaponDropZone.classList.remove("inventory-drop-ready");
+    const item = draggedInventoryItem(event);
+    if (item?.kind === "weapon") equipWeaponInstance(item.instanceId);
+  };
+}
+
+function draggedInventoryItem(event) {
+  const raw = event.dataTransfer.getData(INVENTORY_DRAG_TYPE) || event.dataTransfer.getData("text/plain");
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function equipWeaponInstance(weaponInstanceId) {
+  execute(() => loadoutAuthority.equipWeapon({
+    requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId,
+  }));
+}
+
+function equipSkillAt(skillInstanceId, socketIndex) {
+  selectedSocketIndex = socketIndex;
+  execute(() => loadoutAuthority.equipSkill({
+    requestId: requestId("equip"), expectedVersion: snapshot.loadoutVersion, skillInstanceId, socketIndex,
+  }), "skill");
+}
+
+function connectSupportAt(supportInstanceId, socketIndex) {
+  const skillInstanceId = snapshot.ownershipInput.loadout.skillSockets[socketIndex];
+  if (!skillInstanceId) {
+    $("loadoutCommandState").textContent = "已拒绝 · 辅助卡必须拖到已有技能的孔位";
+    $("loadoutCommandState").className = "rejected";
+    return;
+  }
+  selectedSocketIndex = socketIndex;
+  const attached = snapshot.ownershipInput.loadout.supportConnections[skillInstanceId] ?? [];
+  if (attached.includes(supportInstanceId)) return;
+  execute(() => loadoutAuthority.setSupport({
+    requestId: requestId("support"), expectedVersion: snapshot.loadoutVersion,
+    skillInstanceId, supportInstanceId, enabled: true,
+  }), "support");
+}
+
+function grantTestItem() {
+  const before = new Set(inventoryEntries().map((item) => item.instanceId));
+  const ok = execute(() => loadoutAuthority.grantTestItem({
+    requestId: requestId("grant-test-item"), expectedVersion: snapshot.loadoutVersion,
+    itemKind: $("devItemKind").value, definitionId: $("devItemDefinition").value,
+  }));
+  if (!ok) return;
+  selectedInventoryInstanceId = inventoryEntries().find((item) => !before.has(item.instanceId))?.instanceId ?? null;
+  render();
+  $("loadoutCommandState").textContent = "服务器确认成功 · 测试物品已加入背包";
+}
 function renderSockets(skillInstances, registry) {
   const connections = snapshot.ownershipInput.loadout.supportConnections;
   $("authoritySockets").innerHTML = snapshot.ownershipInput.loadout.skillSockets.map((instanceId, index) => {
@@ -143,6 +279,21 @@ function renderSockets(skillInstances, registry) {
     event.stopPropagation();
     removeSkill(Number(button.dataset.removeSocket));
   }));
+  $("authoritySockets").querySelectorAll("[data-socket-index]").forEach((node) => {
+    node.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      node.classList.add("inventory-drop-ready");
+    });
+    node.addEventListener("dragleave", () => node.classList.remove("inventory-drop-ready"));
+    node.addEventListener("drop", (event) => {
+      event.preventDefault();
+      node.classList.remove("inventory-drop-ready");
+      const item = draggedInventoryItem(event);
+      const socketIndex = Number(node.dataset.socketIndex);
+      if (item?.kind === "skill") equipSkillAt(item.instanceId, socketIndex);
+      else if (item?.kind === "support") connectSupportAt(item.instanceId, socketIndex);
+    });
+  });
 }
 
 function renderInventory(skillInstances, registry) {
@@ -219,7 +370,10 @@ function renderSnapshot(registry) {
   $("authorityFinalSlash").textContent = slashAction
     ? `${Math.round(slashAction.timing.castTimeMs)}ms · ${damage.toFixed(2)}×`
     : "未携带斩击";
-  $("authorityWeaponName").textContent = registry.weapons[config.weapon.id].name;
+  const activeWeapon = snapshot.ownershipInput.weaponInstances.find((item) =>
+    item.instanceId === snapshot.ownershipInput.loadout.weaponInstanceId);
+  $("authorityWeaponName").textContent = registry.weapons[activeWeapon.definitionId].name;
+  $("authorityWeaponInstanceId").textContent = activeWeapon.instanceId;
 }
 
 
@@ -341,7 +495,7 @@ function toggleWeapon() {
   const equipped = snapshot.characterBuild.equippedWeaponInstanceId !== null;
   const ok = equipped
     ? execute(() => loadoutAuthority.unequipWeapon({ requestId: requestId("unequip-weapon"), expectedVersion: snapshot.loadoutVersion }))
-    : execute(() => loadoutAuthority.equipWeapon({ requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId: "weapon-instance-a1-demo" }));
+    : execute(() => loadoutAuthority.equipWeapon({ requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId: snapshot.ownershipInput.loadout.weaponInstanceId }));
   if (!ok) return;
   weaponStatesSeen.add(equipped ? "unequipped" : "equipped");
   acceptanceProof.weapon = weaponStatesSeen.has("equipped") && weaponStatesSeen.has("unequipped");
@@ -390,6 +544,7 @@ function render() {
   const registry = ownership.registry;
   const skillInstances = new Map(ownership.skillCardInstances.map((item) => [item.instanceId, item]));
   const supportInstances = new Map(ownership.supportCardInstances.map((item) => [item.instanceId, item]));
+  renderBackpack(registry);
   renderSockets(skillInstances, registry);
   renderInventory(skillInstances, registry);
   renderSupports(supportInstances, registry);
@@ -399,6 +554,17 @@ function render() {
   renderBackend(registry);
 }
 
+$("inventoryFilters").querySelectorAll("[data-inventory-filter]").forEach((button) => button.addEventListener("click", () => {
+  inventoryFilter = button.dataset.inventoryFilter;
+  $("inventoryFilters").querySelectorAll("[data-inventory-filter]").forEach((item) => item.classList.toggle("active", item === button));
+  renderBackpack(snapshot.ownershipInput.registry);
+}));
+$("inventorySearch").addEventListener("input", (event) => {
+  inventoryQuery = event.target.value;
+  renderBackpack(snapshot.ownershipInput.registry);
+});
+$("devItemKind").addEventListener("change", () => updateDevDefinitionOptions(snapshot.ownershipInput.registry));
+$("grantTestItemBtn").addEventListener("click", grantTestItem);
 $("masteryBaseBtn").addEventListener("click", () => setMastery(config.build.defaultMasteryNodeIds, "基础路线"));
 $("masteryFullBtn").addEventListener("click", () => setMastery(config.recommendedRoute, "完整 30 点路线"));
 $("weaponToggleBtn").addEventListener("click", toggleWeapon);

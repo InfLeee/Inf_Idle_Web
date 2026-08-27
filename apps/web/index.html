@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
   <title>双手剑 · 实时战斗日志</title>
-  <link rel="stylesheet" href="./theme-ro.css?v=support-conflict-1">
+  <link rel="stylesheet" href="./theme-ro.css?v=inventory-v0-1">
 </head>
 <body>
   <div class="app-shell">
@@ -83,6 +83,31 @@
         <span id="runtimeHealth" class="state-chip runtime-health">运行缓存 · 初始化</span>
       </section>
 
+      <section class="inventory-panel" id="inventoryPanel" aria-label="背包最小界面">
+        <header class="inventory-head">
+          <div><p>INVENTORY V0</p><h2>冒险背包</h2><span>服务器资产实例 · 占用状态来自 WeaponLoadout</span></div>
+          <div class="inventory-summary"><b id="inventoryVisibleCount">0 / 0</b><span>拖动物品可装入现有构筑</span></div>
+        </header>
+        <div class="inventory-toolbar">
+          <div id="inventoryFilters" class="inventory-filters" aria-label="背包分类">
+            <button type="button" class="active" data-inventory-filter="all">全部</button>
+            <button type="button" data-inventory-filter="weapon">武器</button>
+            <button type="button" data-inventory-filter="skill">技能卡</button>
+            <button type="button" data-inventory-filter="support">辅助卡</button>
+          </div>
+          <label class="inventory-search"><span>筛选</span><input id="inventorySearch" type="search" placeholder="名称 / 实例 ID / 定义 ID"></label>
+          <div class="inventory-generator">
+            <small>开发期测试物品</small>
+            <select id="devItemKind" aria-label="测试物品类型"><option value="weapon">武器</option><option value="skill">技能卡</option><option value="support">辅助卡</option></select>
+            <select id="devItemDefinition" aria-label="测试物品定义"></select>
+            <button id="grantTestItemBtn" type="button">生成 1 件</button>
+          </div>
+        </div>
+        <div class="inventory-body">
+          <div><div id="inventoryGrid" class="inventory-grid"></div><p class="inventory-legend"><span>装备中</span><span>已镶嵌</span><span>已连接</span><span>锁定</span><span>空闲</span></p></div>
+          <aside id="inventoryDetail" class="inventory-detail"><small>ITEM DETAIL</small><h3>选择一个物品</h3><p>点击查看来源与占用关系；拖到武器区或五孔完成操作。</p></aside>
+        </div>
+      </section>
       <section class="loadout-lab-panel" id="loadoutLab" aria-label="武器构筑验证台">
         <header class="loadout-lab-head">
           <div><p>AUTHORITATIVE LOADOUT</p><h2>武器构筑验证台</h2><span>背包实例 → 五孔关系 → 辅助连接 → 精通分配 → 服务器编译快照</span></div>
@@ -90,11 +115,11 @@
         </header>
 
         <div class="loadout-lab-grid">
-          <aside class="weapon-instance-card">
+          <aside class="weapon-instance-card" id="weaponEquipDropZone">
             <small id="weaponEquipState">已穿戴武器实例</small>
             <div class="weapon-glyph">⚔</div>
             <h3 id="authorityWeaponName">双手剑</h3>
-            <code>weapon-instance-a1-demo</code>
+            <code id="authorityWeaponInstanceId">weapon-instance-a1-demo</code>
             <p>武器决定技能池、精通盘，并携带 2 个当前测试用武器技能。</p>
             <div><span>灵气剑</span><span>骑乘</span></div><button id="weaponToggleBtn" type="button" class="weapon-toggle">卸下武器</button>
           </aside>
@@ -239,6 +264,6 @@
   </div>
   <script type="module" src="./battle-ro.js?v=runtime-retention-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
-  <script type="module" src="./loadout-lab.js?v=local-save-v0-1"></script>
+  <script type="module" src="./loadout-lab.js?v=inventory-v0-1"></script>
 </body>
 </html>

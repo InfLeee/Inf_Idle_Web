@@ -1,5 +1,5 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=local-save-v0-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=inventory-v0-1";
 import { createTwoHandedSwordA1DemoOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
 import { createLocalSaveV0, restoreLocalSaveV0, serializeLocalSaveV0 } from "../../packages/save-core/src/local-save-v0.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";
@@ -47,6 +47,7 @@ function restoreAuthority() {
       config,
       ownershipInput: restored.primaryOwnershipInput,
       equippedWeaponInstanceId: restored.characterBuild.equippedWeaponInstanceId,
+      weaponLoadouts: restored.characterBuild.weaponLoadouts,
     });
   } catch (error) {
     try {

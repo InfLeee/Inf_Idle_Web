@@ -3,6 +3,9 @@ import {
   assertValidWeaponLoadoutOwnership,
   createCharacterBuild,
   createMasteryAllocation,
+  createSkillCardInstance,
+  createSupportCardInstance,
+  createWeaponInstance,
   createWeaponLoadout,
 } from "../../game-domain/src/model.js";
 import { assembleTwoHandedSwordA1CompileInput } from "./two-handed-sword-authority-assembler.js";
@@ -41,12 +44,12 @@ function validateCommand(command, allowedFields) {
   }
 }
 
-function cloneOwnership(base, loadout) {
+function cloneOwnership(base, loadout, changes = {}) {
   return {
     registry: base.registry,
-    weaponInstances: base.weaponInstances,
-    skillCardInstances: base.skillCardInstances,
-    supportCardInstances: base.supportCardInstances,
+    weaponInstances: changes.weaponInstances ?? base.weaponInstances,
+    skillCardInstances: changes.skillCardInstances ?? base.skillCardInstances,
+    supportCardInstances: changes.supportCardInstances ?? base.supportCardInstances,
     loadout,
   };
 }
@@ -56,16 +59,30 @@ export function createAuthoritativeLoadoutService(options) {
   if (!config || !ownershipInput) throw new TypeError("config and ownershipInput are required");
   const maxSupportsPerSkill = options.maxSupportsPerSkill ?? config.build?.supportSlotsPerSkill ?? config.supports.length;
   const maxCommandResults = options.maxCommandResults ?? 1_024;
+  const maxInventoryItems = options.maxInventoryItems ?? 200;
   if (!Number.isInteger(maxCommandResults) || maxCommandResults < 1) throw new RangeError("maxCommandResults must be a positive integer");
+  if (!Number.isInteger(maxInventoryItems) || maxInventoryItems < 1) throw new RangeError("maxInventoryItems must be a positive integer");
   if (!Number.isInteger(options.initialVersion ?? 1) || (options.initialVersion ?? 1) < 1) {
     throw new RangeError("initialVersion must be a positive integer");
   }
   const commandResults = new Map();
   let version = options.initialVersion ?? 1;
-  let currentOwnership = ownershipInput;
+  let weaponLoadouts = [...(options.weaponLoadouts ?? [ownershipInput.loadout])];
   let equippedWeaponInstanceId = Object.hasOwn(options, "equippedWeaponInstanceId")
     ? options.equippedWeaponInstanceId
     : ownershipInput.loadout.weaponInstanceId;
+  const activeLoadout = equippedWeaponInstanceId === null
+    ? ownershipInput.loadout
+    : weaponLoadouts.find((loadout) => loadout.weaponInstanceId === equippedWeaponInstanceId);
+  if (!activeLoadout) throw new Error("equipped weapon has no WeaponLoadout");
+  if (weaponLoadouts.length !== ownershipInput.weaponInstances.length ||
+      ownershipInput.weaponInstances.some((weapon) => !weaponLoadouts.some((loadout) => loadout.weaponInstanceId === weapon.instanceId))) {
+    throw new Error("every weapon instance must own exactly one WeaponLoadout");
+  }
+  let currentOwnership = cloneOwnership(ownershipInput, activeLoadout);
+  for (const loadout of weaponLoadouts) {
+    assertValidWeaponLoadoutOwnership(cloneOwnership(currentOwnership, loadout), { maxSupportsPerSkill });
+  }
   let currentCompileInput;
   let currentBuild;
 
@@ -82,7 +99,7 @@ export function createAuthoritativeLoadoutService(options) {
   function snapshot() {
     const characterBuild = createCharacterBuild({
       equippedWeaponInstanceId,
-      weaponLoadouts: [currentOwnership.loadout],
+      weaponLoadouts,
     });
     return deepFreeze({
       kind: "AuthoritativeLoadoutSnapshot",
@@ -116,9 +133,14 @@ export function createAuthoritativeLoadoutService(options) {
     const nextEquippedWeaponInstanceId = mutation && Object.hasOwn(mutation, "equippedWeaponInstanceId")
       ? mutation.equippedWeaponInstanceId
       : equippedWeaponInstanceId;
-    const nextOwnership = cloneOwnership(currentOwnership, nextLoadout);
+    const nextWeaponLoadouts = mutation?.weaponLoadouts ?? weaponLoadouts.map((loadout) =>
+      loadout.weaponInstanceId === nextLoadout.weaponInstanceId ? nextLoadout : loadout);
+    const nextOwnership = cloneOwnership(currentOwnership, nextLoadout, mutation);
     let rebuilt;
     try {
+      for (const loadout of nextWeaponLoadouts) {
+        assertValidWeaponLoadoutOwnership(cloneOwnership(nextOwnership, loadout), { maxSupportsPerSkill });
+      }
       rebuilt = nextEquippedWeaponInstanceId === null
         ? { combatReady: false, compileInput: null, compiledBuild: null }
         : rebuild(nextOwnership);
@@ -128,6 +150,7 @@ export function createAuthoritativeLoadoutService(options) {
       });
     }
     currentOwnership = nextOwnership;
+    weaponLoadouts = nextWeaponLoadouts;
     equippedWeaponInstanceId = nextEquippedWeaponInstanceId;
     currentCompileInput = rebuilt.compileInput;
     currentBuild = rebuilt.compiledBuild;
@@ -155,6 +178,11 @@ export function createAuthoritativeLoadoutService(options) {
       }
       if (!currentOwnership.skillCardInstances.some((item) => item.instanceId === command.skillInstanceId)) {
         throw new LoadoutCommandError("SKILL_INSTANCE_NOT_OWNED", "skill card instance is not owned");
+      }
+      const occupiedByOtherWeapon = weaponLoadouts.some((item) =>
+        item.weaponInstanceId !== loadout.weaponInstanceId && item.skillSockets.includes(command.skillInstanceId));
+      if (occupiedByOtherWeapon) {
+        throw new LoadoutCommandError("SKILL_OCCUPIED_BY_OTHER_WEAPON", "skill card is socketed in another weapon");
       }
       const skillSockets = [...loadout.skillSockets];
       const previousIndex = skillSockets.indexOf(command.skillInstanceId);
@@ -206,6 +234,11 @@ export function createAuthoritativeLoadoutService(options) {
         if (supportConnections[skillId].length === 0) delete supportConnections[skillId];
       }
       if (command.enabled) {
+        const occupiedByOtherWeapon = weaponLoadouts.some((item) => item.weaponInstanceId !== loadout.weaponInstanceId &&
+          Object.values(item.supportConnections).some((supportIds) => supportIds.includes(command.supportInstanceId)));
+        if (occupiedByOtherWeapon) {
+          throw new LoadoutCommandError("SUPPORT_OCCUPIED_BY_OTHER_WEAPON", "support card is connected to another weapon");
+        }
         const attached = supportConnections[command.skillInstanceId] ?? [];
         if (attached.length >= maxSupportsPerSkill) {
           throw new LoadoutCommandError("SUPPORT_LIMIT_EXCEEDED", `a skill can contain at most ${maxSupportsPerSkill} supports`);
@@ -231,15 +264,75 @@ export function createAuthoritativeLoadoutService(options) {
     });
   }
 
+  function grantTestItem(command) {
+    return execute("grant_test_item", command, ["itemKind", "definitionId"], (loadout) => {
+      const totalItems = currentOwnership.weaponInstances.length + currentOwnership.skillCardInstances.length +
+        currentOwnership.supportCardInstances.length;
+      if (totalItems >= maxInventoryItems) {
+        throw new LoadoutCommandError("INVENTORY_LIMIT_EXCEEDED", "development inventory limit reached");
+      }
+      const instanceId = `dev-${command.itemKind}-${stableHash({
+        requestId: command.requestId,
+        itemKind: command.itemKind,
+        definitionId: command.definitionId,
+      }).slice(0, 12)}`;
+      if (command.itemKind === "weapon") {
+        const definition = currentOwnership.registry.weapons[command.definitionId];
+        if (!definition) throw new LoadoutCommandError("UNKNOWN_WEAPON_DEFINITION", "weapon definition does not exist");
+        const weapon = createWeaponInstance({
+          instanceId,
+          definitionId: definition.id,
+          rolledWeaponSkillDefinitionIds: definition.weaponSkillPoolDefinitionIds.slice(0, 5),
+        });
+        const generatedLoadout = createWeaponLoadout({
+          weaponInstanceId: instanceId,
+          masteryAllocation: createMasteryAllocation({
+            boardDefinitionId: definition.masteryBoardDefinitionId,
+            nodeRanks: Object.fromEntries((config.build?.defaultMasteryNodeIds ?? []).map((nodeId) => [nodeId, 1])),
+          }),
+        });
+        return {
+          loadout,
+          weaponInstances: [...currentOwnership.weaponInstances, weapon],
+          weaponLoadouts: [...weaponLoadouts, generatedLoadout],
+        };
+      }
+      if (command.itemKind === "skill") {
+        const definition = currentOwnership.registry.skills[command.definitionId];
+        if (!definition || definition.sourceType !== "skill_card") {
+          throw new LoadoutCommandError("UNKNOWN_SKILL_CARD_DEFINITION", "skill card definition does not exist");
+        }
+        return {
+          loadout,
+          skillCardInstances: [...currentOwnership.skillCardInstances, createSkillCardInstance({
+            instanceId,
+            definitionId: definition.id,
+          })],
+        };
+      }
+      if (command.itemKind === "support") {
+        const definition = currentOwnership.registry.supports[command.definitionId];
+        if (!definition) throw new LoadoutCommandError("UNKNOWN_SUPPORT_CARD_DEFINITION", "support card definition does not exist");
+        return {
+          loadout,
+          supportCardInstances: [...currentOwnership.supportCardInstances, createSupportCardInstance({
+            instanceId,
+            definitionId: definition.id,
+          })],
+        };
+      }
+      throw new LoadoutCommandError("INVALID_TEST_ITEM_KIND", "itemKind must be weapon, skill or support");
+    });
+  }
+
   function equipWeapon(command) {
-    return execute("equip_weapon", command, ["weaponInstanceId"], (loadout) => {
+    return execute("equip_weapon", command, ["weaponInstanceId"], () => {
       if (!currentOwnership.weaponInstances.some((item) => item.instanceId === command.weaponInstanceId)) {
         throw new LoadoutCommandError("WEAPON_INSTANCE_NOT_OWNED", "weapon instance is not owned");
       }
-      if (command.weaponInstanceId !== loadout.weaponInstanceId) {
-        throw new LoadoutCommandError("WEAPON_LOADOUT_NOT_FOUND", "weapon instance has no loadout");
-      }
-      return { loadout, equippedWeaponInstanceId: command.weaponInstanceId };
+      const targetLoadout = weaponLoadouts.find((item) => item.weaponInstanceId === command.weaponInstanceId);
+      if (!targetLoadout) throw new LoadoutCommandError("WEAPON_LOADOUT_NOT_FOUND", "weapon instance has no loadout");
+      return { loadout: targetLoadout, equippedWeaponInstanceId: command.weaponInstanceId };
     });
   }
 
@@ -256,5 +349,7 @@ export function createAuthoritativeLoadoutService(options) {
   currentCompileInput = initial.compileInput;
   currentBuild = initial.compiledBuild;
   const stats = () => Object.freeze({ idempotencyEntries: commandResults.size, maxCommandResults });
-  return Object.freeze({ snapshot, stats, equipWeapon, unequipWeapon, equipSkill, unequipSkill, setSupport, setMasterySelection });
+  return Object.freeze({
+    snapshot, stats, grantTestItem, equipWeapon, unequipWeapon, equipSkill, unequipSkill, setSupport, setMasterySelection,
+  });
 }
