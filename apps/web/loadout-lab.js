@@ -37,6 +37,15 @@ function supportStatusLabel(status) {
   return SUPPORT_STATUS_LABELS[status] ?? status ?? "未编译";
 }
 
+function modifierOperationLabel(operation) {
+  if (operation.operator === "add_tag" || operation.operator === "remove_tag") {
+    const scope = operation.tagScope === "skill" ? "技能" : "动作";
+    const sign = operation.operator === "add_tag" ? "+" : "−";
+    return `${scope} TAG ${sign}${operation.tag}`;
+  }
+  return `${operation.path} ${operation.operator === "multiply" ? "×" : operation.operator} ${operation.value}`;
+}
+
 function definitionName(registry, definitionId) {
   return registry.skills[definitionId]?.name ?? registry.supports[definitionId]?.name ?? definitionId;
 }
@@ -262,12 +271,12 @@ function renderBackend(registry) {
     const base = actionMetrics(baselineByEntry.get(entry.entryId));
     const final = actionMetrics(entry);
     const sources = supportsBySkill.get(entry.entryId) ?? [];
-    return `<tr class="${base?.text !== final?.text ? "changed" : ""}"><td><b>${definitionName(registry, entry.definitionId)}</b><small>${entry.sourceInstanceId}</small></td><td>${base?.text ?? "—"}</td><td><strong>${final?.text ?? "—"}</strong></td><td>${sources.length ? sources.join(" + ") : "无辅助修改"}</td></tr>`;
+    return `<tr class="${base?.text !== final?.text ? "changed" : ""}"><td><b>${definitionName(registry, entry.definitionId)}</b><small>${entry.sourceInstanceId}</small><small>最终 TAG：${entry.skillTags.join(" · ")}</small></td><td>${base?.text ?? "—"}</td><td><strong>${final?.text ?? "—"}</strong></td><td>${sources.length ? sources.join(" + ") : "无辅助修改"}</td></tr>`;
   }).join("");
   const evidence = [
     ...applied.map((item) => {
       const status = statusByInstance.get(item.sourceInstanceId);
-      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId)?.definitionId)} · ${supportStatusLabel(status?.status)} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${item.operations.map((operation) => operation.path + " × " + operation.value).join("，")}</span>`;
+      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId)?.definitionId)} · ${supportStatusLabel(status?.status)} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${item.operations.map(modifierOperationLabel).join("，")}</span>`;
     }),
     ...conflicted.map((item) => `<span class="rejected"><b>${definitionName(registry, item.sourceDefinitionId)}</b> · 互斥失效 · 胜者 ${definitionName(registry, item.winnerSourceDefinitionId)} · 胜者顺序 ${item.winnerInsertionOrder}</span>`),
   ];

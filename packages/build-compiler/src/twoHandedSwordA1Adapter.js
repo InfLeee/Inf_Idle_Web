@@ -2,6 +2,7 @@ import {
   ACTION_SCHEMA_VERSION,
   ACTION_TIMING_KIND,
   EFFECT_KIND,
+  MODIFIER_OPERATION,
   MODIFIER_PHASE,
   MODIFIER_SOURCE_KIND,
   TARGET_SELECTOR_KIND,
@@ -50,12 +51,27 @@ function mapPath(path) {
   return mapped;
 }
 
+function createIdentityTagChanges(definition) {
+  const identity = definition.identityChanges ?? {};
+  return [
+    ...(identity.removeSkillTags ?? []).map((tag) => ({ operator: MODIFIER_OPERATION.REMOVE_TAG, tagScope: "skill", tag })),
+    ...(identity.addSkillTags ?? []).map((tag) => ({ operator: MODIFIER_OPERATION.ADD_TAG, tagScope: "skill", tag })),
+    ...(identity.removeActionTags ?? []).map((tag) => ({ operator: MODIFIER_OPERATION.REMOVE_TAG, tagScope: "action", tag })),
+    ...(identity.addActionTags ?? []).map((tag) => ({ operator: MODIFIER_OPERATION.ADD_TAG, tagScope: "action", tag })),
+  ];
+}
+
 function createRegistry(config) {
   const skillTags = new Set();
   const actionTags = new Set(ACTION_TAGS);
   for (const skill of config.skills) {
     for (const tag of skill.tags ?? []) {
       (ACTION_TAGS.has(tag) ? actionTags : skillTags).add(tag);
+    }
+  }
+  for (const support of config.supports) {
+    for (const change of createIdentityTagChanges(support)) {
+      (change.tagScope === "action" ? actionTags : skillTags).add(change.tag);
     }
   }
   return createTagRegistry({ skillTags: [...skillTags].sort(), actionTags: [...actionTags].sort(), supportSlotTags: SUPPORT_SLOT_TAGS });
@@ -162,27 +178,45 @@ function createSupportBindings(config, assignments, equippedEntries) {
     if (!target) throw new Error("Support target is not equipped: " + (assignment.skillEntryId ?? assignment.skillId));
     const compatibility = splitCompatibilityTags(definition.compatibility?.requireAll).skill;
     const excluded = splitCompatibilityTags(definition.compatibility?.excludeAny).skill;
+    const operations = [];
+    const identityChanges = createIdentityTagChanges(definition);
+    if (identityChanges.length) {
+      operations.push({
+        id: "identity-main-action",
+        kind: SUPPORT_OPERATION_KIND.IDENTITY,
+        phase: SUPPORT_OPERATION_PHASE.IDENTITY,
+        target: {
+          objectType: SUPPORT_OBJECT_TYPE.ACTION,
+          supportSlotTag: "MAIN_DAMAGE",
+          targetMode: SUPPORT_TARGET_MODE.UNIQUE,
+        },
+        changes: identityChanges,
+      });
+    }
+    if ((definition.effects ?? []).length) {
+      operations.push({
+        id: "modify-main-action",
+        kind: SUPPORT_OPERATION_KIND.MODIFY,
+        phase: SUPPORT_OPERATION_PHASE.MODIFY,
+        target: {
+          objectType: SUPPORT_OBJECT_TYPE.ACTION,
+          supportSlotTag: "MAIN_DAMAGE",
+          targetMode: SUPPORT_TARGET_MODE.UNIQUE,
+        },
+        changes: definition.effects.map((effect) => ({
+          operator: effect.operator,
+          path: mapPath(effect.path),
+          value: effect.value,
+        })),
+      });
+    }
     return {
       script: createSupportScriptDefinition({
         version: SUPPORT_SCRIPT_VERSION,
         id: "support-script:" + definition.id,
         compatibility: { skillAll: compatibility, skillNone: excluded },
         conflictGroup: definition.conflictGroup ?? null,
-        operations: [{
-          id: "modify-main-action",
-          kind: SUPPORT_OPERATION_KIND.MODIFY,
-          phase: SUPPORT_OPERATION_PHASE.MODIFY,
-          target: {
-            objectType: SUPPORT_OBJECT_TYPE.ACTION,
-            supportSlotTag: "MAIN_DAMAGE",
-            targetMode: SUPPORT_TARGET_MODE.UNIQUE,
-          },
-          changes: definition.effects.map((effect) => ({
-            operator: effect.operator,
-            path: mapPath(effect.path),
-            value: effect.value,
-          })),
-        }],
+        operations,
       }),
       sourceDefinitionId: definition.id,
       sourceInstanceId: assignment.supportInstanceId ?? "prototype:" + definition.id + ":" + index,

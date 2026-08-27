@@ -33,7 +33,7 @@ export const SUPPORT_CARD_STATUS = Object.freeze({
   CONFIG_ERROR: "config_error",
 });
 
-const IMPLEMENTED_KINDS = new Set([SUPPORT_OPERATION_KIND.REPLACE, SUPPORT_OPERATION_KIND.MODIFY]);
+const IMPLEMENTED_KINDS = new Set([SUPPORT_OPERATION_KIND.REPLACE, SUPPORT_OPERATION_KIND.MODIFY, SUPPORT_OPERATION_KIND.IDENTITY]);
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -81,7 +81,21 @@ export function createSupportScriptOperation(input) {
   if (input.kind === SUPPORT_OPERATION_KIND.MODIFY && input.phase !== SUPPORT_OPERATION_PHASE.MODIFY) {
     throw new Error("modify operation must run in modify phase");
   }
+  if (input.kind === SUPPORT_OPERATION_KIND.IDENTITY && input.phase !== SUPPORT_OPERATION_PHASE.IDENTITY) {
+    throw new Error("identity operation must run in identity phase");
+  }
   const target = createSupportTarget(input.target);
+  if (input.kind === SUPPORT_OPERATION_KIND.IDENTITY) {
+    if (target.objectType !== SUPPORT_OBJECT_TYPE.ACTION) throw new Error("identity operation can target only action objects");
+    const changes = (input.changes ?? []).map(createModifierOperation);
+    if (changes.length === 0) throw new Error("identity operation must contain at least one change");
+    if (changes.some((change) => ![MODIFIER_OPERATION.ADD_TAG, MODIFIER_OPERATION.REMOVE_TAG].includes(change.operator))) {
+      throw new Error("support identity allows only add_tag and remove_tag");
+    }
+    const tagTargets = changes.map((change) => change.tagScope + ":" + change.tag);
+    if (new Set(tagTargets).size !== tagTargets.length) throw new Error("identity operation cannot write the same tag target twice");
+    return deepFreeze({ id: input.id, kind: input.kind, phase: input.phase, target, changes });
+  }
   if (input.kind === SUPPORT_OPERATION_KIND.REPLACE) {
     assertRecord(input.replaceWith, "SupportScriptOperation.replaceWith");
     return deepFreeze({ id: input.id, kind: input.kind, phase: input.phase, target, replaceWith: structuredClone(input.replaceWith) });

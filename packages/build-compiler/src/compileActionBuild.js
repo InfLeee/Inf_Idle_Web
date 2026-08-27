@@ -428,6 +428,7 @@ export function compileActionBuild(input, options = {}) {
   });
   for (const item of supportScriptResult.diagnostics) pushDiagnostic(diagnostics, item, budget);
   for (const phase of MODIFIER_PHASE_ORDER.slice(2)) applyPhase(skills, bindings, phase, diagnostics, budget, meter);
+  validateInputTags(skills, input.tagRegistry);
   for (const skill of skills) {
     assertValidActionProtocol({ tagRegistry: input.tagRegistry, actions: skill.actions, modifiers: [] });
   }

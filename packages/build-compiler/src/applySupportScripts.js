@@ -8,6 +8,7 @@ import {
   SUPPORT_CARD_STATUS,
   SUPPORT_OBJECT_TYPE,
   SUPPORT_OPERATION_KIND,
+  SUPPORT_OPERATION_PHASE,
   SUPPORT_OPERATION_PHASE_ORDER,
   SUPPORT_TARGET_MODE,
   createSupportScriptDefinition,
@@ -154,7 +155,43 @@ function resolveSelectedTargets(skill, operation, onWork) {
   }
   return { error: null, targets, matchedCount: targets.length };
 }
+function applyTagChange(skill, action, change) {
+  const target = change.tagScope === "skill" ? skill : action;
+  const field = change.tagScope === "skill" ? "skillTags" : "actionTags";
+  const tags = new Set(target[field]);
+  if (change.operator === MODIFIER_OPERATION.ADD_TAG) tags.add(change.tag);
+  else tags.delete(change.tag);
+  target[field] = [...tags];
+}
+function applyIdentityOperationAtomic(skill, operation, selected, onWork) {
+  const skillTagsBefore = clone(skill.skillTags);
+  const actionsBefore = clone(skill.actions);
+  const changes = [];
+  try {
+    for (const target of selected) {
+      onWork();
+      const before = { skillTags: clone(skill.skillTags), action: clone(target.object) };
+      const actionAfter = clone(target.object);
+      for (const change of operation.changes) {
+        onWork();
+        applyTagChange(skill, actionAfter, change);
+      }
+      const normalizedAction = normalizeObject(SUPPORT_OBJECT_TYPE.ACTION, actionAfter);
+      target.replace(normalizedAction);
+      changes.push({ before, after: { skillTags: clone(skill.skillTags), action: clone(normalizedAction) } });
+    }
+    assertUniqueObjectIds(skill);
+    return changes;
+  } catch (error) {
+    skill.skillTags = skillTagsBefore;
+    skill.actions = actionsBefore;
+    throw error;
+  }
+}
 function applyOperationAtomic(skill, operation, selected, onWork) {
+  if (operation.kind === SUPPORT_OPERATION_KIND.IDENTITY) {
+    return applyIdentityOperationAtomic(skill, operation, selected, onWork);
+  }
   const changes = [];
   for (const target of selected) {
     onWork();
@@ -192,10 +229,12 @@ function aggregateStatus(results) {
 
 function assertKnownSupportScriptTags(bindings, tagRegistry) {
   const knownSkillTags = new Set(tagRegistry?.skillTags ?? []);
+  const knownActionTags = new Set(tagRegistry?.actionTags ?? []);
   const knownSupportSlotTags = new Set(tagRegistry?.supportSlotTags ?? []);
   const sourceInstanceIds = new Set();
   const insertionOrders = new Set();
   const scriptsById = new Map();
+  const conflictStages = new Map();
   for (const binding of bindings) {
     if (sourceInstanceIds.has(binding.sourceInstanceId)) throw new Error("duplicate SupportScriptBinding sourceInstanceId " + binding.sourceInstanceId);
     if (insertionOrders.has(binding.insertionOrder)) throw new Error("duplicate SupportScriptBinding insertionOrder " + binding.insertionOrder);
@@ -205,12 +244,24 @@ function assertKnownSupportScriptTags(bindings, tagRegistry) {
     const previous = scriptsById.get(binding.script.id);
     if (previous && previous !== serialized) throw new Error("Support script id " + binding.script.id + " has inconsistent content");
     scriptsById.set(binding.script.id, serialized);
+    const stage = binding.script.operations.some((operation) => operation.kind === SUPPORT_OPERATION_KIND.IDENTITY) ? "identity" : "normal";
+    if (binding.script.conflictGroup) {
+      const conflictKey = binding.attachedSkillEntryId + ":" + binding.script.conflictGroup;
+      const previousStage = conflictStages.get(conflictKey);
+      if (previousStage && previousStage !== stage) throw new Error("support conflictGroup cannot cross identity and normal stages: " + binding.script.conflictGroup);
+      conflictStages.set(conflictKey, stage);
+    }
     for (const tag of [...binding.script.compatibility.skillAll, ...binding.script.compatibility.skillAny, ...binding.script.compatibility.skillNone]) {
       if (!knownSkillTags.has(tag)) throw new Error("unknown skill tag in support script " + binding.script.id + ": " + tag);
     }
     for (const operation of binding.script.operations) {
       if (!knownSupportSlotTags.has(operation.target.supportSlotTag)) {
         throw new Error("unknown support slot tag in support script " + binding.script.id + ": " + operation.target.supportSlotTag);
+      }
+      for (const change of operation.changes ?? []) {
+        if (change.operator !== MODIFIER_OPERATION.ADD_TAG && change.operator !== MODIFIER_OPERATION.REMOVE_TAG) continue;
+        const known = change.tagScope === "skill" ? knownSkillTags : knownActionTags;
+        if (!known.has(change.tag)) throw new Error("unknown " + change.tagScope + " tag in support identity " + binding.script.id + ": " + change.tag);
       }
     }
   }
@@ -239,15 +290,7 @@ function resolveScriptConflictGroups(bindings, skillByEntry, statusByInstance, d
   }
 }
 
-export function applySupportScriptBindings(skills, rawBindings = [], options = {}) {
-  const bindings = rawBindings.map(normalizeBinding).sort(bindingSort);
-  assertKnownSupportScriptTags(bindings, options.tagRegistry);
-  const onWork = options.onWork ?? (() => {});
-  const diagnostics = [];
-  const statusByInstance = new Map();
-  const resultsByInstance = new Map(bindings.map((binding) => [binding.sourceInstanceId, []]));
-  const skillByEntry = new Map(skills.map((skill) => [skill.entryId, skill]));
-
+function evaluateCompatibility(bindings, skillByEntry, statusByInstance, diagnostics) {
   for (const binding of bindings) {
     const skill = skillByEntry.get(binding.attachedSkillEntryId);
     if (!skill) throw new Error("SupportScriptBinding target skill is missing: " + binding.attachedSkillEntryId);
@@ -256,36 +299,59 @@ export function applySupportScriptBindings(skills, rawBindings = [], options = {
       diagnostics.push(trace(binding, null, skill, SUPPORT_CARD_STATUS.INCOMPATIBLE));
     }
   }
+}
 
-  resolveScriptConflictGroups(bindings, skillByEntry, statusByInstance, diagnostics);
-
-  for (const phase of SUPPORT_OPERATION_PHASE_ORDER) {
-    for (const binding of bindings) {
-      if (statusByInstance.has(binding.sourceInstanceId)) continue;
-      const skill = skillByEntry.get(binding.attachedSkillEntryId);
-      for (const operation of binding.script.operations.filter((item) => item.phase === phase)) {
-        const resolved = resolveSelectedTargets(skill, operation, onWork);
-        if (resolved.error) {
-          resultsByInstance.get(binding.sourceInstanceId).push(resolved.error);
-          diagnostics.push(trace(binding, operation, skill, resolved.error, { matchedCount: resolved.matchedCount }));
-          continue;
+function applyScriptPhase(bindings, phase, skillByEntry, statusByInstance, resultsByInstance, diagnostics, onWork) {
+  for (const binding of bindings) {
+    if (statusByInstance.has(binding.sourceInstanceId)) continue;
+    const skill = skillByEntry.get(binding.attachedSkillEntryId);
+    for (const operation of binding.script.operations.filter((item) => item.phase === phase)) {
+      const resolved = resolveSelectedTargets(skill, operation, onWork);
+      if (resolved.error) {
+        resultsByInstance.get(binding.sourceInstanceId).push(resolved.error);
+        diagnostics.push(trace(binding, operation, skill, resolved.error, { matchedCount: resolved.matchedCount }));
+        continue;
+      }
+      try {
+        const changes = applyOperationAtomic(skill, operation, resolved.targets, onWork);
+        resultsByInstance.get(binding.sourceInstanceId).push(SUPPORT_CARD_STATUS.ACTIVE);
+        for (const change of changes) {
+          diagnostics.push(trace(binding, operation, skill, "applied", {
+            matchedCount: resolved.targets.length,
+            before: change.before,
+            after: change.after,
+          }));
         }
-        try {
-          const changes = applyOperationAtomic(skill, operation, resolved.targets, onWork);
-          resultsByInstance.get(binding.sourceInstanceId).push(SUPPORT_CARD_STATUS.ACTIVE);
-          for (const change of changes) {
-            diagnostics.push(trace(binding, operation, skill, "applied", {
-              matchedCount: resolved.targets.length,
-              before: change.before,
-              after: change.after,
-            }));
-          }
-        } catch (error) {
-          resultsByInstance.get(binding.sourceInstanceId).push(SUPPORT_CARD_STATUS.CONFIG_ERROR);
-          diagnostics.push(trace(binding, operation, skill, SUPPORT_CARD_STATUS.CONFIG_ERROR, { error: error.message }));
-        }
+      } catch (error) {
+        resultsByInstance.get(binding.sourceInstanceId).push(SUPPORT_CARD_STATUS.CONFIG_ERROR);
+        diagnostics.push(trace(binding, operation, skill, SUPPORT_CARD_STATUS.CONFIG_ERROR, { error: error.message }));
       }
     }
+  }
+}
+
+export function applySupportScriptBindings(skills, rawBindings = [], options = {}) {
+  const bindings = rawBindings.map(normalizeBinding).sort(bindingSort);
+  assertKnownSupportScriptTags(bindings, options.tagRegistry);
+  const onWork = options.onWork ?? (() => {});
+  const diagnostics = [];
+  const statusByInstance = new Map();
+  const resultsByInstance = new Map(bindings.map((binding) => [binding.sourceInstanceId, []]));
+  const skillByEntry = new Map(skills.map((skill) => [skill.entryId, skill]));
+  const identityBindings = bindings.filter((binding) => binding.script.operations.some((operation) => operation.kind === SUPPORT_OPERATION_KIND.IDENTITY));
+  const identityInstanceIds = new Set(identityBindings.map((binding) => binding.sourceInstanceId));
+  const normalBindings = bindings.filter((binding) => !identityInstanceIds.has(binding.sourceInstanceId));
+
+  // Identity cards are admitted against base tags and mutate identity first.
+  evaluateCompatibility(identityBindings, skillByEntry, statusByInstance, diagnostics);
+  resolveScriptConflictGroups(identityBindings, skillByEntry, statusByInstance, diagnostics);
+  applyScriptPhase(identityBindings, SUPPORT_OPERATION_PHASE.IDENTITY, skillByEntry, statusByInstance, resultsByInstance, diagnostics, onWork);
+
+  // Ordinary cards are admitted only after the final identity is known.
+  evaluateCompatibility(normalBindings, skillByEntry, statusByInstance, diagnostics);
+  resolveScriptConflictGroups(normalBindings, skillByEntry, statusByInstance, diagnostics);
+  for (const phase of SUPPORT_OPERATION_PHASE_ORDER.filter((item) => item !== SUPPORT_OPERATION_PHASE.IDENTITY)) {
+    applyScriptPhase(bindings, phase, skillByEntry, statusByInstance, resultsByInstance, diagnostics, onWork);
   }
 
   for (const binding of bindings) {
