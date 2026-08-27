@@ -1,10 +1,10 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=inventory-v0-1";
-import { createTwoHandedSwordA1DemoOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=slot-bound-supports-1";
+import { createTwoHandedSwordA1InventoryLabOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
 import { createLocalSaveV0, restoreLocalSaveV0, serializeLocalSaveV0 } from "../../packages/save-core/src/local-save-v0.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";
 
-export const LOCAL_SAVE_STORAGE_KEY = "inf-idle.local-save.v0";
+export const LOCAL_SAVE_STORAGE_KEY = "inf-idle.local-save.v0.2";
 
 let activeAutoPolicy = Object.freeze(structuredClone(config.build.autoPolicy));
 let localSaveStatus = Object.freeze({ status: "empty", code: null });
@@ -17,16 +17,23 @@ function browserStorage() {
   }
 }
 
+function createBaselineOwnership() {
+  return createTwoHandedSwordA1InventoryLabOwnership(config);
+}
+
 function createBaselineAuthority() {
+  const ownershipInput = createBaselineOwnership();
   return createAuthoritativeLoadoutService({
     config,
-    ownershipInput: createTwoHandedSwordA1DemoOwnership(config),
+    ownershipInput,
+    weaponLoadouts: ownershipInput.weaponLoadouts,
+    equippedWeaponInstanceId: null,
   });
 }
 
 function restoreAuthority() {
   const storage = browserStorage();
-  const baseline = createTwoHandedSwordA1DemoOwnership(config);
+  const baseline = createBaselineOwnership();
   let serialized;
   try {
     serialized = storage?.getItem(LOCAL_SAVE_STORAGE_KEY);

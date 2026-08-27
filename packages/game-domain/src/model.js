@@ -1,4 +1,4 @@
-export const DOMAIN_SCHEMA_VERSION = "domain-v1";
+export const DOMAIN_SCHEMA_VERSION = "domain-v2";
 export const WEAPON_SKILL_SOCKET_COUNT = 5;
 export const MAX_ROLLED_WEAPON_SKILLS = 5;
 export const SKILL_SOURCE_TYPE = Object.freeze({
@@ -12,6 +12,7 @@ const INSTANCE_RELATION_FIELDS = Object.freeze([
   "socketIndex",
   "skillSockets",
   "supportConnections",
+  "supportSlots",
   "supportInsertionOrder",
   "supportCardInstanceIds",
   "masteryAllocation",
@@ -303,40 +304,62 @@ export function createWeaponLoadout(input) {
   const occupied = skillSockets.filter(Boolean);
   if (new Set(occupied).size !== occupied.length) throw new Error("a SkillCardInstance cannot occupy multiple sockets");
 
-  const supportConnections = input.supportConnections ?? {};
-  assertRecord(supportConnections, "WeaponLoadout.supportConnections");
-  for (const [skillCardInstanceId, supportIds] of Object.entries(supportConnections)) {
-    assertId(skillCardInstanceId, "WeaponLoadout.supportConnections key");
-    assertUniqueStrings(supportIds, "WeaponLoadout.supportConnections." + skillCardInstanceId);
+  let supportSlots;
+  if (input.supportSlots !== undefined) {
+    if (!Array.isArray(input.supportSlots) || input.supportSlots.length !== WEAPON_SKILL_SOCKET_COUNT) {
+      throw new Error("WeaponLoadout.supportSlots must contain exactly " + WEAPON_SKILL_SOCKET_COUNT + " physical socket groups");
+    }
+    supportSlots = input.supportSlots.map((supportIds, index) => {
+      assertUniqueStrings(supportIds, "WeaponLoadout.supportSlots[" + index + "]");
+      return [...supportIds];
+    });
+  } else {
+    const legacyConnections = input.supportConnections ?? {};
+    assertRecord(legacyConnections, "WeaponLoadout.supportConnections");
+    supportSlots = Array.from({ length: WEAPON_SKILL_SOCKET_COUNT }, () => []);
+    for (const [skillCardInstanceId, supportIds] of Object.entries(legacyConnections)) {
+      assertId(skillCardInstanceId, "WeaponLoadout.supportConnections key");
+      assertUniqueStrings(supportIds, "WeaponLoadout.supportConnections." + skillCardInstanceId);
+      const socketIndex = skillSockets.indexOf(skillCardInstanceId);
+      if (socketIndex < 0) throw new Error("legacy support target must occupy a physical skill socket");
+      supportSlots[socketIndex] = [...supportIds];
+    }
   }
 
-  const connectedSupportIds = Object.values(supportConnections).flat();
+  const slottedSupportIds = supportSlots.flat();
+  if (new Set(slottedSupportIds).size !== slottedSupportIds.length) {
+    throw new Error("a SupportCardInstance cannot occupy multiple weapon support slots");
+  }
   const supportInsertionOrder = input.supportInsertionOrder === undefined
-    ? Object.fromEntries(connectedSupportIds.map((instanceId, index) => [instanceId, index]))
+    ? Object.fromEntries(slottedSupportIds.map((instanceId, index) => [instanceId, index]))
     : input.supportInsertionOrder;
   assertRecord(supportInsertionOrder, "WeaponLoadout.supportInsertionOrder");
   const insertionIds = Object.keys(supportInsertionOrder);
-  if (new Set(insertionIds).size !== insertionIds.length) throw new Error("support insertion order ids must be unique");
   if (new Set(Object.values(supportInsertionOrder)).size !== insertionIds.length) throw new Error("support insertion order values must be unique");
   for (const [instanceId, insertionOrder] of Object.entries(supportInsertionOrder)) {
     assertId(instanceId, "WeaponLoadout.supportInsertionOrder key");
     assertInteger(insertionOrder, "WeaponLoadout.supportInsertionOrder." + instanceId, 0);
   }
-  if (new Set(connectedSupportIds).size !== insertionIds.length ||
-      connectedSupportIds.some((instanceId) => !Object.hasOwn(supportInsertionOrder, instanceId))) {
-    throw new Error("supportInsertionOrder must contain exactly the connected support instances");
+  if (slottedSupportIds.length !== insertionIds.length ||
+      slottedSupportIds.some((instanceId) => !Object.hasOwn(supportInsertionOrder, instanceId))) {
+    throw new Error("supportInsertionOrder must contain exactly the slotted support instances");
   }
 
+  const supportConnections = {};
+  supportSlots.forEach((supportIds, socketIndex) => {
+    const skillInstanceId = skillSockets[socketIndex];
+    if (skillInstanceId && supportIds.length) supportConnections[skillInstanceId] = [...supportIds];
+  });
   return deepFreeze({
     kind: "WeaponLoadout",
     weaponInstanceId: input.weaponInstanceId,
     skillSockets: [...skillSockets],
-    supportConnections: clone(supportConnections),
+    supportSlots: clone(supportSlots),
+    supportConnections,
     supportInsertionOrder: { ...supportInsertionOrder },
     masteryAllocation: createMasteryAllocation(input.masteryAllocation),
   });
 }
-
 function issue(code, path, message) {
   return Object.freeze({ code, path, message });
 }
@@ -401,43 +424,38 @@ export function validateWeaponLoadoutOwnership(input, options = {}) {
     }
   }
 
-  const connectedSupportIds = new Set();
-  for (const [skillInstanceId, supportIds] of Object.entries(loadout.supportConnections)) {
-    if (!occupiedSkillIds.includes(skillInstanceId)) {
-      issues.push(issue("SUPPORT_TARGET_NOT_SOCKETED", "supportConnections." + skillInstanceId, skillInstanceId));
-    }
+  const slottedSupportIds = new Set();
+  for (const [socketIndex, supportIds] of loadout.supportSlots.entries()) {
     if (Number.isInteger(options.maxSupportsPerSkill) && supportIds.length > options.maxSupportsPerSkill) {
-      issues.push(issue("SUPPORT_LIMIT_EXCEEDED", "supportConnections." + skillInstanceId, String(supportIds.length)));
+      issues.push(issue("SUPPORT_LIMIT_EXCEEDED", "supportSlots[" + socketIndex + "]", String(supportIds.length)));
     }
     for (const supportId of supportIds) {
       if (!supports[supportId]) {
-        issues.push(issue("MISSING_SUPPORT_CARD_INSTANCE", "supportConnections." + skillInstanceId, supportId));
+        issues.push(issue("MISSING_SUPPORT_CARD_INSTANCE", "supportSlots[" + socketIndex + "]", supportId));
       } else if (!registry.supports[supports[supportId].definitionId]) {
-        issues.push(issue("MISSING_SUPPORT_DEFINITION", "supportConnections." + skillInstanceId, supports[supportId].definitionId));
+        issues.push(issue("MISSING_SUPPORT_DEFINITION", "supportSlots[" + socketIndex + "]", supports[supportId].definitionId));
       }
-      if (connectedSupportIds.has(supportId)) {
-        issues.push(issue("SUPPORT_INSTANCE_CONNECTED_TWICE", "supportConnections." + skillInstanceId, supportId));
+      if (slottedSupportIds.has(supportId)) {
+        issues.push(issue("SUPPORT_INSTANCE_CONNECTED_TWICE", "supportSlots[" + socketIndex + "]", supportId));
       }
-      connectedSupportIds.add(supportId);
+      slottedSupportIds.add(supportId);
     }
   }
 
-  const connectedSupportInstanceIds = Object.values(loadout.supportConnections).flat();
-  const insertionOrder = loadout.supportInsertionOrder;
-  if (!insertionOrder || typeof insertionOrder !== "object" || Array.isArray(insertionOrder)) {
+  const supportInsertionOrder = loadout.supportInsertionOrder;
+  if (!supportInsertionOrder || typeof supportInsertionOrder !== "object" || Array.isArray(supportInsertionOrder)) {
     issues.push(issue("MISSING_SUPPORT_INSERTION_ORDER", "supportInsertionOrder", "support insertion order is required"));
   } else {
-    const insertionIds = Object.keys(insertionOrder);
-    const values = Object.values(insertionOrder);
+    const insertionIds = Object.keys(supportInsertionOrder);
+    const values = Object.values(supportInsertionOrder);
     if (new Set(values).size !== values.length || values.some((value) => !Number.isInteger(value) || value < 0)) {
       issues.push(issue("INVALID_SUPPORT_INSERTION_ORDER", "supportInsertionOrder", "orders must be unique non-negative integers"));
     }
-    if (new Set(connectedSupportInstanceIds).size !== insertionIds.length ||
-        connectedSupportInstanceIds.some((instanceId) => !Object.hasOwn(insertionOrder, instanceId))) {
-      issues.push(issue("SUPPORT_INSERTION_SET_MISMATCH", "supportInsertionOrder", "orders must match connected support instances"));
+    if (slottedSupportIds.size !== insertionIds.length ||
+        [...slottedSupportIds].some((instanceId) => !Object.hasOwn(supportInsertionOrder, instanceId))) {
+      issues.push(issue("SUPPORT_INSERTION_SET_MISMATCH", "supportInsertionOrder", "orders must match slotted support instances"));
     }
-  }
-  if (weaponDefinition) {
+  }  if (weaponDefinition) {
     const allocation = loadout.masteryAllocation;
     if (allocation.boardDefinitionId !== weaponDefinition.masteryBoardDefinitionId) {
       issues.push(issue("MASTERY_BOARD_MISMATCH", "masteryAllocation.boardDefinitionId", allocation.boardDefinitionId));

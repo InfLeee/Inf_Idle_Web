@@ -24,11 +24,15 @@ function loadoutMaps(snapshot) {
     loadout.skillSockets.forEach((instanceId, socketIndex) => {
       if (instanceId) skillOwner.set(instanceId, { weaponInstanceId: loadout.weaponInstanceId, socketIndex });
     });
-    for (const [skillInstanceId, supportIds] of Object.entries(loadout.supportConnections)) {
+    loadout.supportSlots.forEach((supportIds, socketIndex) => {
       for (const instanceId of supportIds) {
-        supportOwner.set(instanceId, { weaponInstanceId: loadout.weaponInstanceId, skillInstanceId });
+        supportOwner.set(instanceId, {
+          weaponInstanceId: loadout.weaponInstanceId,
+          skillInstanceId: loadout.skillSockets[socketIndex],
+          socketIndex,
+        });
       }
-    }
+    });
   }
   return { skillOwner, supportOwner };
 }
@@ -78,7 +82,7 @@ export function deriveInventoryEntries(snapshot, options = {}) {
       ...entryBase(INVENTORY_ITEM_KIND.SUPPORT, instance, registry.supports[instance.definitionId], lockedIds),
       occupancy: owner ? INVENTORY_OCCUPANCY.CONNECTED : INVENTORY_OCCUPANCY.AVAILABLE,
       occupiedByWeaponInstanceId: owner?.weaponInstanceId ?? null,
-      socketIndex: null,
+      socketIndex: owner?.socketIndex ?? null,
       attachedSkillInstanceId: owner?.skillInstanceId ?? null,
     });
   }

@@ -1,9 +1,9 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=inventory-v0-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=slot-bound-supports-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
 import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=inventory-v0-1";
+import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=slot-bound-supports-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -103,17 +103,11 @@ function removeSkill(socketIndex) {
 }
 
 function toggleSupport(supportInstanceId) {
-  const skillInstanceId = snapshot.ownershipInput.loadout.skillSockets[selectedSocketIndex];
-  if (!skillInstanceId) {
-    $("loadoutCommandState").textContent = "已拒绝 · 请先选择有技能的孔位";
-    $("loadoutCommandState").className = "rejected";
-    return;
-  }
-  const attached = snapshot.ownershipInput.loadout.supportConnections[skillInstanceId] ?? [];
+  const attached = snapshot.ownershipInput.loadout.supportSlots[selectedSocketIndex];
   execute(() => loadoutAuthority.setSupport({
     requestId: requestId("support"),
     expectedVersion: snapshot.loadoutVersion,
-    skillInstanceId,
+    socketIndex: selectedSocketIndex,
     supportInstanceId,
     enabled: !attached.includes(supportInstanceId),
   }), "support");
@@ -133,7 +127,9 @@ function setMastery(nodeIds, label) {
 function inventoryStatusLabel(entry) {
   if (entry.occupancy === "equipped") return "装备中";
   if (entry.occupancy === "socketed") return `已镶嵌 · 孔 ${entry.socketIndex + 1}`;
-  if (entry.occupancy === "connected") return "已连接";
+  if (entry.occupancy === "connected") {
+    return entry.attachedSkillInstanceId ? `已连接 · 孔 ${entry.socketIndex + 1}` : `已连接 · 孔 ${entry.socketIndex + 1}（休眠）`;
+  }
   return "空闲";
 }
 
@@ -174,6 +170,17 @@ function renderInventoryDetail(entries) {
   </dl>`;
 }
 
+function weaponSlotPreview(weaponInstanceId, registry) {
+  const loadout = snapshot.characterBuild.weaponLoadouts.find((item) => item.weaponInstanceId === weaponInstanceId);
+  if (!loadout) return "";
+  const skills = new Map(snapshot.ownershipInput.skillCardInstances.map((item) => [item.instanceId, item]));
+  return `<span class="weapon-slot-preview">${loadout.skillSockets.map((skillInstanceId, socketIndex) => {
+    const skill = skills.get(skillInstanceId);
+    const name = skill ? registry.skills[skill.definitionId]?.name ?? skill.definitionId : "空技能孔";
+    const supports = loadout.supportSlots[socketIndex];
+    return `<i class="${skill ? "filled" : "empty"}" title="孔 ${socketIndex + 1} · ${name} · ${supports.length} 张辅助卡"><b>${socketIndex + 1}</b><span>${skill ? "技" : "空"}</span><small>${supports.length}/3 辅</small></i>`;
+  }).join("")}</span>`;
+}
 function renderBackpack(registry) {
   const entries = inventoryEntries();
   if (selectedInventoryInstanceId && !entries.some((item) => item.instanceId === selectedInventoryInstanceId)) {
@@ -183,8 +190,9 @@ function renderBackpack(registry) {
   $("inventoryVisibleCount").textContent = `${visible.length} / ${entries.length}`;
   $("inventoryGrid").innerHTML = visible.length ? visible.map((entry) => {
     const occupancyClass = entry.occupancy === "equipped" ? "equipped" : entry.occupancy === "available" ? "" : "occupied";
-    return `<button type="button" draggable="true" class="inventory-item ${occupancyClass} ${entry.locked ? "locked" : ""} ${selectedInventoryInstanceId === entry.instanceId ? "selected" : ""}" data-inventory-instance="${entry.instanceId}">
-      <span class="item-icon">${inventoryGlyph(entry.kind)}</span><div><strong>${entry.name}</strong><small>${entry.instanceId}</small><small>${inventoryKindLabel(entry.kind)} · ${inventoryStatusLabel(entry)}</small></div><em>${entry.locked ? "锁定 · " : ""}${inventoryStatusLabel(entry)}</em>
+    const weaponPreview = entry.kind === "weapon" ? weaponSlotPreview(entry.instanceId, registry) : "";
+    return `<button type="button" draggable="true" class="inventory-item ${entry.kind} ${occupancyClass} ${entry.locked ? "locked" : ""} ${selectedInventoryInstanceId === entry.instanceId ? "selected" : ""}" data-inventory-instance="${entry.instanceId}">
+      <span class="item-icon">${inventoryGlyph(entry.kind)}</span><div><strong>${entry.name}</strong><small>${entry.instanceId}</small><small>${inventoryKindLabel(entry.kind)} · ${inventoryStatusLabel(entry)}</small></div><em>${entry.locked ? "锁定 · " : ""}${inventoryStatusLabel(entry)}</em>${weaponPreview}
     </button>`;
   }).join("") : '<div class="inventory-empty">没有符合当前分类与搜索条件的物品</div>';
   $("inventoryGrid").querySelectorAll("[data-inventory-instance]").forEach((node) => {
@@ -234,18 +242,12 @@ function equipSkillAt(skillInstanceId, socketIndex) {
 }
 
 function connectSupportAt(supportInstanceId, socketIndex) {
-  const skillInstanceId = snapshot.ownershipInput.loadout.skillSockets[socketIndex];
-  if (!skillInstanceId) {
-    $("loadoutCommandState").textContent = "已拒绝 · 辅助卡必须拖到已有技能的孔位";
-    $("loadoutCommandState").className = "rejected";
-    return;
-  }
   selectedSocketIndex = socketIndex;
-  const attached = snapshot.ownershipInput.loadout.supportConnections[skillInstanceId] ?? [];
+  const attached = snapshot.ownershipInput.loadout.supportSlots[socketIndex];
   if (attached.includes(supportInstanceId)) return;
   execute(() => loadoutAuthority.setSupport({
     requestId: requestId("support"), expectedVersion: snapshot.loadoutVersion,
-    skillInstanceId, supportInstanceId, enabled: true,
+    socketIndex, supportInstanceId, enabled: true,
   }), "support");
 }
 
@@ -261,14 +263,14 @@ function grantTestItem() {
   $("loadoutCommandState").textContent = "服务器确认成功 · 测试物品已加入背包";
 }
 function renderSockets(skillInstances, registry) {
-  const connections = snapshot.ownershipInput.loadout.supportConnections;
-  $("authoritySockets").innerHTML = snapshot.ownershipInput.loadout.skillSockets.map((instanceId, index) => {
+  const loadout = snapshot.ownershipInput.loadout;
+  $("authoritySockets").innerHTML = loadout.skillSockets.map((instanceId, index) => {
     const instance = skillInstances.get(instanceId);
     const definition = instance ? registry.skills[instance.definitionId] : null;
-    const supports = instanceId ? connections[instanceId] ?? [] : [];
+    const supports = loadout.supportSlots[index];
     return `<article class="authority-socket ${selectedSocketIndex === index ? "selected" : ""} ${instance ? "filled" : "empty"}" data-socket-index="${index}">
       <b>${index + 1}</b>
-      ${instance ? `<img src="${SKILL_IMAGES[instance.definitionId]}" alt=""><div><strong>${definition.name}</strong><small>${instance.instanceId}</small><span>${supports.length} / ${config.build.supportSlotsPerSkill} 张辅助卡</span></div><button type="button" data-remove-socket="${index}" aria-label="卸下技能">×</button>` : `<div><strong>空孔</strong><small>点击选择，再从背包装入</small></div>`}
+      ${instance ? `<img src="${SKILL_IMAGES[instance.definitionId]}" alt=""><div><strong>${definition.name}</strong><small>${instance.instanceId}</small><span>${supports.length} / ${config.build.supportSlotsPerSkill} 张辅助卡</span></div><button type="button" data-remove-socket="${index}" aria-label="卸下技能">×</button>` : `<div><strong>空技能孔</strong><small>${supports.length ? `${supports.length} 张辅助卡保留并休眠` : "拖入技能卡；辅助槽保持独立"}</small></div>`}
     </article>`;
   }).join("");
   $("authoritySockets").querySelectorAll("[data-socket-index]").forEach((node) => node.addEventListener("click", () => {
@@ -311,19 +313,19 @@ function renderInventory(skillInstances, registry) {
 }
 
 function renderSupports(supportInstances, registry) {
-  const selectedSkillId = snapshot.ownershipInput.loadout.skillSockets[selectedSocketIndex];
-  const connections = snapshot.ownershipInput.loadout.supportConnections;
-  const selectedSupports = selectedSkillId ? connections[selectedSkillId] ?? [] : [];
+  const loadout = snapshot.ownershipInput.loadout;
+  const selectedSkillId = loadout.skillSockets[selectedSocketIndex];
+  const selectedSupports = loadout.supportSlots[selectedSocketIndex];
   const supportLimit = config.build.supportSlotsPerSkill;
   const statusByInstance = new Map((snapshot.compiledBuild?.supportStatuses ?? []).map((item) => [item.sourceInstanceId, item]));
   $("selectedSocketLabel").textContent = selectedSkillId
-    ? `当前目标：孔 ${selectedSocketIndex + 1} · 已装 ${selectedSupports.length} / ${supportLimit} · ${supportInstances.size} 张可用`
-    : `当前目标：孔 ${selectedSocketIndex + 1}（空）· ${supportInstances.size} 张可用`;
+    ? `当前目标：孔 ${selectedSocketIndex + 1} · 已装 ${selectedSupports.length} / ${supportLimit} · 插入技能后实时重判`
+    : `当前目标：孔 ${selectedSocketIndex + 1}（技能为空）· ${selectedSupports.length} / ${supportLimit} 张辅助卡保留休眠`;
   $("authoritySupports").innerHTML = [...supportInstances.values()].map((instance) => {
-    const attachedTarget = Object.entries(connections).find(([, ids]) => ids.includes(instance.instanceId))?.[0];
-    const active = attachedTarget === selectedSkillId;
+    const attachedSlotIndex = loadout.supportSlots.findIndex((supportIds) => supportIds.includes(instance.instanceId));
+    const active = attachedSlotIndex === selectedSocketIndex;
     const capacityBlocked = !active && selectedSupports.length >= supportLimit;
-    const targetIndex = snapshot.ownershipInput.loadout.skillSockets.indexOf(attachedTarget);
+    const attachedSkillId = attachedSlotIndex >= 0 ? loadout.skillSockets[attachedSlotIndex] : null;
     const status = statusByInstance.get(instance.instanceId);
     const definition = config.supports.find((item) => item.id === instance.definitionId);
     const requirements = definition?.compatibility?.requireAll?.join(" + ") ?? "无TAG限制";
@@ -333,17 +335,19 @@ function renderSupports(supportInstances, registry) {
       "explosion_aoe_amplification_support",
       "projectile_amplification_support",
     ].includes(instance.definitionId) ? "transition-test" : "";
+    const connectionState = attachedSlotIndex < 0
+      ? capacityBlocked ? "辅助槽已满" : "未连接"
+      : !attachedSkillId
+        ? `已连接孔 ${attachedSlotIndex + 1} · 技能为空，休眠`
+        : `已连接孔 ${attachedSlotIndex + 1} · ${snapshot.compiledBuild ? supportStatusLabel(status?.status) : "等待武器穿戴"}`;
     return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass} ${transitionTest}" data-support-instance="${instance.instanceId}" ${capacityBlocked ? "disabled" : ""}>
-      <strong>${definitionName(registry, instance.definitionId)}</strong>
-      <small>${attachedTarget ? `已连接孔 ${targetIndex + 1} · ${supportStatusLabel(status?.status)}` : capacityBlocked ? "辅助槽已满" : "未连接"}</small>
-      <em>${requirements}</em>
+      <strong>${definitionName(registry, instance.definitionId)}</strong><small>${connectionState}</small><em>${requirements}</em>
     </button>`;
   }).join("");
   $("authoritySupports").querySelectorAll("[data-support-instance]").forEach((button) => button.addEventListener("click", () => {
     toggleSupport(button.dataset.supportInstance);
   }));
 }
-
 function renderMastery() {
   const selected = new Set(Object.keys(snapshot.ownershipInput.loadout.masteryAllocation.nodeRanks));
   $("masteryTrack").innerHTML = config.masteryNodes.map((node) => `<span class="mastery-node ${selected.has(node.id) ? "active" : ""}">
@@ -370,10 +374,11 @@ function renderSnapshot(registry) {
   $("authorityFinalSlash").textContent = slashAction
     ? `${Math.round(slashAction.timing.castTimeMs)}ms · ${damage.toFixed(2)}×`
     : "未携带斩击";
-  const activeWeapon = snapshot.ownershipInput.weaponInstances.find((item) =>
-    item.instanceId === snapshot.ownershipInput.loadout.weaponInstanceId);
-  $("authorityWeaponName").textContent = registry.weapons[activeWeapon.definitionId].name;
-  $("authorityWeaponInstanceId").textContent = activeWeapon.instanceId;
+  const equippedWeapon = snapshot.ownershipInput.weaponInstances.find((item) =>
+    item.instanceId === snapshot.characterBuild.equippedWeaponInstanceId);
+  $("authorityWeaponName").textContent = equippedWeapon ? registry.weapons[equippedWeapon.definitionId].name : "空武器栏";
+  $("authorityWeaponInstanceId").textContent = equippedWeapon?.instanceId ?? "从背包拖入一把武器";
+  $("weaponEquipDropZone").classList.toggle("empty", !equippedWeapon);
 }
 
 
@@ -410,8 +415,8 @@ function setCheck(id, passed) {
 
 function renderAcceptance() {
   const equipped = snapshot.characterBuild.equippedWeaponInstanceId !== null;
-  $("weaponEquipState").textContent = equipped ? "已穿戴武器实例" : "武器位为空";
-  $("weaponToggleBtn").textContent = equipped ? "卸下武器" : "穿戴武器";
+  $("weaponEquipState").textContent = equipped ? "已穿戴武器实例" : "武器栏为空";
+  $("weaponToggleBtn").textContent = equipped ? "卸下武器" : "装上当前查看武器";
   $("weaponToggleBtn").classList.toggle("equip", !equipped);
   setCheck("frontCheckWeapon", acceptanceProof.weapon);
   setCheck("frontCheckSkill", acceptanceProof.skill);
@@ -483,7 +488,7 @@ function resetLab(announce = true) {
   selectedSocketIndex = 0;
   acceptanceProof = { weapon: false, skill: false, support: false };
   weaponStatesSeen.clear();
-  weaponStatesSeen.add("equipped");
+  weaponStatesSeen.add("unequipped");
   acceptanceMessages = announce ? ["已恢复基准构筑，可重新执行整套验收。"] : [];
   $("loadoutCommandState").textContent = "服务器确认成功 · 已恢复基准";
   $("loadoutCommandState").className = "accepted";
@@ -505,32 +510,39 @@ function toggleWeapon() {
 
 function runAcceptance() {
   resetLab(false);
-  acceptanceMessages = ["开始联合验收：所有步骤均通过版本化权威命令执行。"];
+  acceptanceMessages = ["开始联合验收：角色武器栏默认为空，全部步骤通过版本化权威命令执行。"];
+  const weaponBlocked = !snapshot.combatReady && snapshot.compiledBuild === null &&
+    snapshot.characterBuild.equippedWeaponInstanceId === null;
+  const boundSupports = [...snapshot.ownershipInput.loadout.supportSlots[0]];
   toggleWeapon();
-  const weaponBlocked = !snapshot.combatReady && snapshot.compiledBuild === null;
+  const equippedHash = snapshot.compiledBuild?.buildHash;
+  const weaponEquipped = snapshot.combatReady && boundSupports.every((id) => snapshot.ownershipInput.loadout.supportSlots[0].includes(id));
   toggleWeapon();
-  const weaponRestored = snapshot.combatReady && snapshot.compiledBuild !== null;
+  const bindingKeptWhileUnequipped = !snapshot.combatReady && snapshot.compiledBuild === null &&
+    boundSupports.every((id) => snapshot.ownershipInput.loadout.supportSlots[0].includes(id));
+  toggleWeapon();
+  const weaponRestored = snapshot.compiledBuild?.buildHash === equippedHash;
+
   const slashId = "skill-instance-a1-1";
   removeSkill(0);
   const skillRemoved = !snapshot.compiledBuild.compiledSkills.some((entry) => entry.sourceInstanceId === slashId);
+  const supportsDormant = boundSupports.every((id) => snapshot.ownershipInput.loadout.supportSlots[0].includes(id)) &&
+    snapshot.ownershipInput.loadout.supportConnections[slashId] === undefined;
   selectedSocketIndex = 0;
   equipSkill(slashId);
   const skillRestored = snapshot.compiledBuild.compiledSkills.some((entry) => entry.sourceInstanceId === slashId);
-  toggleSupport("support-instance-a1-1");
-  toggleSupport("support-instance-a1-2");
-  const slash = snapshot.compiledBuild.compiledSkills.find((entry) => entry.sourceInstanceId === slashId);
-  const metric = actionMetrics(slash);
-  const diagnostics = snapshot.compiledBuild.diagnostics.filter((item) => item.sourceKind === "support_card" && item.status === "applied");
+  const supportsReprojected = boundSupports.every((id) =>
+    snapshot.ownershipInput.loadout.supportConnections[slashId]?.includes(id));
+  const statuses = snapshot.compiledBuild.supportStatuses.filter((item) => boundSupports.includes(item.sourceInstanceId));
   acceptanceProof = {
-    weapon: weaponBlocked && weaponRestored,
-    skill: skillRemoved && skillRestored,
-    support: metric.castTimeMs === 220 && metric.damageMultiplier === 1.3 && diagnostics.length === 2 &&
-      snapshot.compiledBuild.supportStatuses.length === 2 && snapshot.compiledBuild.supportStatuses.every((item) => item.status === "active"),
+    weapon: weaponBlocked && weaponEquipped && bindingKeptWhileUnequipped && weaponRestored,
+    skill: skillRemoved && supportsDormant && skillRestored,
+    support: supportsReprojected && statuses.length === boundSupports.length && statuses.every((item) => item.status === "active"),
   };
   acceptanceMessages.push(
-    `武器链路：${acceptanceProof.weapon ? "通过" : "失败"}（卸下阻断、重装恢复）。`,
-    `技能链路：${acceptanceProof.skill ? "通过" : "失败"}（卸孔移除编译、装回重新生效）。`,
-    `辅助链路：${acceptanceProof.support ? "通过" : "失败"}（目标 220ms / 1.30×，2 条来源记录）。`,
+    `武器链路：${acceptanceProof.weapon ? "通过" : "失败"}（默认空栏、穿戴、卸下保留整把武器构筑、重装恢复）。`,
+    `技能链路：${acceptanceProof.skill ? "通过" : "失败"}（拔卡后辅助槽保留休眠，技能从编译列表移除）。`,
+    `辅助链路：${acceptanceProof.support ? "通过" : "失败"}（重新插卡后 ${boundSupports.length} 张辅助卡按新技能主体重新判定）。`,
   );
   render();
   const passed = Object.values(acceptanceProof).every(Boolean);
@@ -538,7 +550,6 @@ function runAcceptance() {
   $("loadoutCommandState").className = passed ? "accepted" : "rejected";
   publishLoadoutSnapshot(snapshot);
 }
-
 function render() {
   const ownership = snapshot.ownershipInput;
   const registry = ownership.registry;

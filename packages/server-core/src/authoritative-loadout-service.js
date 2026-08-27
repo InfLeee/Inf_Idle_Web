@@ -165,7 +165,7 @@ export function createAuthoritativeLoadoutService(options) {
     return createWeaponLoadout({
       weaponInstanceId: loadout.weaponInstanceId,
       skillSockets: changes.skillSockets ?? loadout.skillSockets,
-      supportConnections: changes.supportConnections ?? loadout.supportConnections,
+      supportSlots: changes.supportSlots ?? loadout.supportSlots,
       supportInsertionOrder: changes.supportInsertionOrder ?? loadout.supportInsertionOrder,
       masteryAllocation: changes.masteryAllocation ?? loadout.masteryAllocation,
     });
@@ -187,15 +187,8 @@ export function createAuthoritativeLoadoutService(options) {
       const skillSockets = [...loadout.skillSockets];
       const previousIndex = skillSockets.indexOf(command.skillInstanceId);
       if (previousIndex >= 0) skillSockets[previousIndex] = null;
-      const displaced = skillSockets[command.socketIndex];
       skillSockets[command.socketIndex] = command.skillInstanceId;
-      const supportConnections = structuredClone(loadout.supportConnections);
-      const supportInsertionOrder = structuredClone(loadout.supportInsertionOrder);
-      if (displaced && displaced !== command.skillInstanceId) {
-        for (const supportId of supportConnections[displaced] ?? []) delete supportInsertionOrder[supportId];
-        delete supportConnections[displaced];
-      }
-      return loadoutWith(loadout, { skillSockets, supportConnections, supportInsertionOrder });
+      return loadoutWith(loadout, { skillSockets });
     });
   }
 
@@ -205,52 +198,49 @@ export function createAuthoritativeLoadoutService(options) {
         throw new LoadoutCommandError("INVALID_SOCKET_INDEX", "socketIndex must be between 0 and 4");
       }
       const skillSockets = [...loadout.skillSockets];
-      const removed = skillSockets[command.socketIndex];
       skillSockets[command.socketIndex] = null;
-      const supportConnections = structuredClone(loadout.supportConnections);
-      const supportInsertionOrder = structuredClone(loadout.supportInsertionOrder);
-      if (removed) {
-        for (const supportId of supportConnections[removed] ?? []) delete supportInsertionOrder[supportId];
-        delete supportConnections[removed];
-      }
-      return loadoutWith(loadout, { skillSockets, supportConnections, supportInsertionOrder });
+      return loadoutWith(loadout, { skillSockets });
     });
   }
 
   function setSupport(command) {
-    return execute("set_support", command, ["skillInstanceId", "supportInstanceId", "enabled"], (loadout) => {
-      if (!loadout.skillSockets.includes(command.skillInstanceId)) {
-        throw new LoadoutCommandError("SUPPORT_TARGET_NOT_SOCKETED", "support target must be socketed");
+    return execute("set_support", command, ["skillInstanceId", "socketIndex", "supportInstanceId", "enabled"], (loadout) => {
+      const skillSocketIndex = typeof command.skillInstanceId === "string"
+        ? loadout.skillSockets.indexOf(command.skillInstanceId)
+        : -1;
+      const socketIndex = command.socketIndex ?? skillSocketIndex;
+      if (!Number.isInteger(socketIndex) || socketIndex < 0 || socketIndex >= 5) {
+        throw new LoadoutCommandError("INVALID_SUPPORT_SOCKET_INDEX", "support socketIndex must be between 0 and 4");
+      }
+      if (command.skillInstanceId !== undefined && skillSocketIndex !== socketIndex) {
+        throw new LoadoutCommandError("SUPPORT_TARGET_SOCKET_MISMATCH", "skill instance does not occupy the requested socket");
       }
       if (!currentOwnership.supportCardInstances.some((item) => item.instanceId === command.supportInstanceId)) {
         throw new LoadoutCommandError("SUPPORT_INSTANCE_NOT_OWNED", "support card instance is not owned");
       }
       if (typeof command.enabled !== "boolean") throw new LoadoutCommandError("INVALID_SUPPORT_STATE", "enabled must be boolean");
-      const supportConnections = structuredClone(loadout.supportConnections);
+      const supportSlots = structuredClone(loadout.supportSlots);
       const supportInsertionOrder = structuredClone(loadout.supportInsertionOrder);
       delete supportInsertionOrder[command.supportInstanceId];
-      for (const [skillId, supportIds] of Object.entries(supportConnections)) {
-        supportConnections[skillId] = supportIds.filter((id) => id !== command.supportInstanceId);
-        if (supportConnections[skillId].length === 0) delete supportConnections[skillId];
+      for (let index = 0; index < supportSlots.length; index += 1) {
+        supportSlots[index] = supportSlots[index].filter((id) => id !== command.supportInstanceId);
       }
       if (command.enabled) {
         const occupiedByOtherWeapon = weaponLoadouts.some((item) => item.weaponInstanceId !== loadout.weaponInstanceId &&
-          Object.values(item.supportConnections).some((supportIds) => supportIds.includes(command.supportInstanceId)));
+          item.supportSlots.some((supportIds) => supportIds.includes(command.supportInstanceId)));
         if (occupiedByOtherWeapon) {
           throw new LoadoutCommandError("SUPPORT_OCCUPIED_BY_OTHER_WEAPON", "support card is connected to another weapon");
         }
-        const attached = supportConnections[command.skillInstanceId] ?? [];
-        if (attached.length >= maxSupportsPerSkill) {
-          throw new LoadoutCommandError("SUPPORT_LIMIT_EXCEEDED", `a skill can contain at most ${maxSupportsPerSkill} supports`);
+        if (supportSlots[socketIndex].length >= maxSupportsPerSkill) {
+          throw new LoadoutCommandError("SUPPORT_LIMIT_EXCEEDED", `a physical skill socket can contain at most ${maxSupportsPerSkill} supports`);
         }
-        supportConnections[command.skillInstanceId] = [...attached, command.supportInstanceId];
+        supportSlots[socketIndex].push(command.supportInstanceId);
         const previousOrders = Object.values(supportInsertionOrder);
         supportInsertionOrder[command.supportInstanceId] = previousOrders.length ? Math.max(...previousOrders) + 1 : 0;
       }
-      return loadoutWith(loadout, { supportConnections, supportInsertionOrder });
+      return loadoutWith(loadout, { supportSlots, supportInsertionOrder });
     });
   }
-
   function setMasterySelection(command) {
     return execute("set_mastery_selection", command, ["nodeIds"], (loadout) => {
       if (!Array.isArray(command.nodeIds) || new Set(command.nodeIds).size !== command.nodeIds.length) {

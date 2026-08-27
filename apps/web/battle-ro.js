@@ -69,7 +69,10 @@ function compile(snapshot = loadoutAuthority.snapshot()) {
   build = legacyBuildFromSnapshot(snapshot);
   if (!build) {
     combatTemplate = [];
-    simulation = { log: [{ at: 0, type: "radar", label: "构筑未就绪", detail: "至少装入一张技能卡", value: "等待构筑" }] };
+    const detail = snapshot.characterBuild.equippedWeaponInstanceId === null
+      ? "请先从背包装备一把武器"
+      : "当前武器至少需要装入一张技能卡";
+    simulation = { log: [{ at: 0, type: "radar", label: "构筑未就绪", detail, value: "等待构筑" }] };
     return false;
   }
   const combat = simulateTwoHandedSwordA1(build, { durationMs: 60_000 });
@@ -119,12 +122,12 @@ function reset() {
   eventIndex = 0;
   visibleLogCount = 0;
   monsters = [];
-  pendingSpawns = [
+  pendingSpawns = build ? [
     { at: 1_150, typeIndex: 0, angle: -108 },
     { at: 1_650, typeIndex: 1, angle: -20 },
     { at: 2_200, typeIndex: 2, angle: 62 },
     { at: 2_750, typeIndex: 3, angle: 152 },
-  ];
+  ] : [];
   nextMonsterId = 1;
   spawnSerial = 4;
   killCount = 0;
@@ -141,11 +144,19 @@ function reset() {
   playerState = "alive";
   reviveAt = 0;
   nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
-  simulation.log = [
+  simulation.log = build ? [
     { at: 0, type: "radar", label: "开始扫描", detail: "搜索草原 30m 战斗视域", value: "扫描中" },
     ...combatTemplate.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })),
-  ].sort((left, right) => left.at - right.at);
-  $("eventLog").innerHTML = '<div class="empty-log"><strong>正在准备草原战斗</strong><span>雷达会自动发现多个目标并开始挂机战斗。</span></div>';
+  ].sort((left, right) => left.at - right.at) : [{
+    at: 0,
+    type: "radar",
+    label: "构筑未就绪",
+    detail: authoritySnapshot.characterBuild.equippedWeaponInstanceId === null ? "请先装备武器" : "请为武器装入技能卡",
+    value: "待机",
+  }];
+  $("eventLog").innerHTML = build
+    ? '<div class="empty-log"><strong>正在准备草原战斗</strong><span>雷达会自动发现多个目标并开始挂机战斗。</span></div>'
+    : '<div class="empty-log"><strong>当前没有可运行的战斗构筑</strong><span>从背包将武器拖入独立武器栏后，战斗会自动开始。</span></div>';
   $("radarUnits").replaceChildren();
   clearTransientNodes($("radarFloats"));
   clearTransientNodes($("playerFloats"));
@@ -576,6 +587,7 @@ window.addEventListener("authoritative-loadout-change", (event) => {
   if (build) startAutomatically();
 });
 function startAutomatically() {
+  if (!build) return;
   if (autoStartTimer !== null) clearTimeout(autoStartTimer);
   autoStartTimer = setTimeout(() => {
     autoStartTimer = null;

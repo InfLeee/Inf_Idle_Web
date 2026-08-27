@@ -9,7 +9,7 @@ import {
 } from "../../game-domain/src/model.js";
 
 export const LOCAL_SAVE_KIND = "InfIdleLocalSaveV0";
-export const LOCAL_SAVE_VERSION = 1;
+export const LOCAL_SAVE_VERSION = 2;
 
 const TOP_LEVEL_FIELDS = Object.freeze([
   "kind", "saveVersion", "configVersion", "inventory", "equippedWeaponInstanceId",
@@ -108,7 +108,7 @@ function normalizeSupportInstance(value, index) {
 
 function normalizeLoadout(value, index) {
   assertExactFields(value, [
-    "kind", "weaponInstanceId", "skillSockets", "supportConnections",
+    "kind", "weaponInstanceId", "skillSockets", "supportSlots", "supportConnections",
     "supportInsertionOrder", "masteryAllocation",
   ], "weaponLoadouts[" + index + "]");
   if (value.kind !== "WeaponLoadout") fail("INSTANCE_KIND_MISMATCH", "loadout kind is invalid", { index });

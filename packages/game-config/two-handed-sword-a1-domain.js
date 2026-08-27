@@ -122,3 +122,83 @@ export function createTwoHandedSwordA1DemoOwnership(config, options = {}) {
     supportCardInstances: Object.freeze(supportCardInstances),
   });
 }
+export function createTwoHandedSwordA1InventoryLabOwnership(config) {
+  const registry = createTwoHandedSwordA1DefinitionRegistry(config);
+  const weaponInstances = [];
+  const skillCardInstances = [];
+  const supportCardInstances = [];
+  const weaponLoadouts = [];
+
+  function addWeapon({ weaponInstanceId, skillDefinitionIds, supportDefinitionSlots, skillPrefix, supportPrefix }) {
+    const weapon = createWeaponInstance({
+      instanceId: weaponInstanceId,
+      definitionId: config.weapon.id,
+      rolledWeaponSkillDefinitionIds: [...config.weapon.fixedWeaponSkillIds],
+    });
+    weaponInstances.push(weapon);
+    const skills = skillDefinitionIds.map((definitionId, index) => createSkillCardInstance({
+      instanceId: `${skillPrefix}${index + 1}`,
+      definitionId,
+    }));
+    skillCardInstances.push(...skills);
+    let supportSerial = 1;
+    const supportSlots = supportDefinitionSlots.map((definitionIds) => definitionIds.map((definitionId) => {
+      const instance = createSupportCardInstance({
+        instanceId: `${supportPrefix}${supportSerial++}`,
+        definitionId,
+      });
+      supportCardInstances.push(instance);
+      return instance.instanceId;
+    }));
+    const loadout = createWeaponLoadout({
+      weaponInstanceId,
+      skillSockets: Array.from({ length: 5 }, (_, index) => skills[index]?.instanceId ?? null),
+      supportSlots,
+      masteryAllocation: createMasteryAllocation({
+        boardDefinitionId: config.weapon.masteryBoardId,
+        nodeRanks: Object.fromEntries(config.build.defaultMasteryNodeIds.map((nodeId) => [nodeId, 1])),
+      }),
+    });
+    weaponLoadouts.push(loadout);
+  }
+
+  const supportIds = config.supports.map((support) => support.id);
+  addWeapon({
+    weaponInstanceId: TWO_HANDED_SWORD_A1_DEMO_IDS.weaponInstanceId,
+    skillDefinitionIds: config.build.defaultSkillSlots,
+    supportDefinitionSlots: Array.from({ length: 5 }, (_, socketIndex) =>
+      Array.from({ length: 3 }, (_, supportIndex) => supportIds[(socketIndex * 3 + supportIndex) % supportIds.length])),
+    skillPrefix: TWO_HANDED_SWORD_A1_DEMO_IDS.skillInstancePrefix,
+    supportPrefix: TWO_HANDED_SWORD_A1_DEMO_IDS.supportInstancePrefix,
+  });
+  addWeapon({
+    weaponInstanceId: "weapon-instance-a1-test-2",
+    skillDefinitionIds: config.build.defaultSkillSlots.slice(0, 2).reverse(),
+    supportDefinitionSlots: [[supportIds[0], supportIds[1]], [], [], [], []],
+    skillPrefix: "skill-instance-a1-w2-",
+    supportPrefix: "support-instance-a1-w2-",
+  });
+  addWeapon({
+    weaponInstanceId: "weapon-instance-a1-test-3",
+    skillDefinitionIds: [],
+    supportDefinitionSlots: [[], [], [], [], []],
+    skillPrefix: "skill-instance-a1-w3-",
+    supportPrefix: "support-instance-a1-w3-",
+  });
+
+  for (const [index, definitionId] of config.build.allowedSkillIds.entries()) {
+    if (skillCardInstances.some((instance) => instance.definitionId === definitionId && instance.instanceId.startsWith(TWO_HANDED_SWORD_A1_DEMO_IDS.skillInstancePrefix))) continue;
+    skillCardInstances.push(createSkillCardInstance({
+      instanceId: `${TWO_HANDED_SWORD_A1_DEMO_IDS.skillInstancePrefix}free-${index + 1}`,
+      definitionId,
+    }));
+  }
+  return Object.freeze({
+    registry,
+    loadout: weaponLoadouts[0],
+    weaponLoadouts: Object.freeze(weaponLoadouts),
+    weaponInstances: Object.freeze(weaponInstances),
+    skillCardInstances: Object.freeze(skillCardInstances),
+    supportCardInstances: Object.freeze(supportCardInstances),
+  });
+}

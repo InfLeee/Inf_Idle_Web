@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
   <title>双手剑 · 实时战斗日志</title>
-  <link rel="stylesheet" href="./theme-ro.css?v=inventory-v0-1">
+  <link rel="stylesheet" href="./theme-ro.css?v=slot-bound-supports-1">
 </head>
 <body>
   <div class="app-shell">
@@ -83,6 +83,13 @@
         <span id="runtimeHealth" class="state-chip runtime-health">运行缓存 · 初始化</span>
       </section>
 
+      <section class="character-weapon-panel" aria-label="角色武器栏">
+        <header><div><p>CHARACTER WEAPON SLOT</p><h2>角色武器栏</h2><span>初始为空 · 将背包武器拖到这里穿戴</span></div><b id="weaponEquipState">武器栏为空</b></header>
+        <div class="character-weapon-slot empty" id="weaponEquipDropZone">
+          <div class="weapon-glyph">⚔</div><div><small>当前穿戴</small><h3 id="authorityWeaponName">空武器栏</h3><code id="authorityWeaponInstanceId">拖入一把武器</code><p>卸下武器不会拆除该武器的技能卡和辅助卡。</p></div>
+          <button id="weaponToggleBtn" type="button" class="weapon-toggle equip">装上当前查看武器</button>
+        </div>
+      </section>
       <section class="inventory-panel" id="inventoryPanel" aria-label="背包最小界面">
         <header class="inventory-head">
           <div><p>INVENTORY V0</p><h2>冒险背包</h2><span>服务器资产实例 · 占用状态来自 WeaponLoadout</span></div>
@@ -115,15 +122,6 @@
         </header>
 
         <div class="loadout-lab-grid">
-          <aside class="weapon-instance-card" id="weaponEquipDropZone">
-            <small id="weaponEquipState">已穿戴武器实例</small>
-            <div class="weapon-glyph">⚔</div>
-            <h3 id="authorityWeaponName">双手剑</h3>
-            <code id="authorityWeaponInstanceId">weapon-instance-a1-demo</code>
-            <p>武器决定技能池、精通盘，并携带 2 个当前测试用武器技能。</p>
-            <div><span>灵气剑</span><span>骑乘</span></div><button id="weaponToggleBtn" type="button" class="weapon-toggle">卸下武器</button>
-          </aside>
-
           <div class="loadout-workbench">
             <div class="workbench-title"><div><small>WEAPON SOCKETS</small><h3>武器五孔</h3></div><span>先点孔位，再从背包装入；点击 × 卸下</span></div>
             <div id="authoritySockets" class="authority-sockets"></div>
@@ -161,7 +159,7 @@
             <ol class="acceptance-checks">
               <li id="frontCheckWeapon"><i>1</i><div><b>武器穿戴</b><small>卸下后禁止战斗，重新穿戴后恢复武器自己的五孔构筑</small></div><strong>待验证</strong></li>
               <li id="frontCheckSkill"><i>2</i><div><b>技能卡穿戴</b><small>技能实例只能通过五孔关系进入服务器编译列表</small></div><strong>待验证</strong></li>
-              <li id="frontCheckSupport"><i>3</i><div><b>辅助卡连接</b><small>辅助卡连接技能实例，随技能移孔保持，不直接写最终数值</small></div><strong>待验证</strong></li>
+              <li id="frontCheckSupport"><i>3</i><div><b>辅助卡连接</b><small>辅助卡固定在武器物理孔；技能拔出后保留休眠，插入新技能后重新判定</small></div><strong>待验证</strong></li>
             </ol>
           </section>
           <section class="acceptance-backend">
@@ -264,6 +262,6 @@
   </div>
   <script type="module" src="./battle-ro.js?v=runtime-retention-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
-  <script type="module" src="./loadout-lab.js?v=inventory-v0-1"></script>
+  <script type="module" src="./loadout-lab.js?v=slot-bound-supports-1"></script>
 </body>
 </html>
