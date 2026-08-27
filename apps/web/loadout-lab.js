@@ -1,8 +1,8 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=three-support-slots-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=local-save-v0-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=three-support-slots-1";
+import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=local-save-v0-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -407,3 +407,17 @@ $("runAcceptanceBtn").addEventListener("click", runAcceptance);
 
 render();
 publishLoadoutSnapshot(snapshot);
+const initialSaveStatus = getLocalSaveStatus();
+if (initialSaveStatus.status === "restored") {
+  $("loadoutCommandState").textContent = "\u5df2\u4ece\u672c\u5730\u5b58\u6863\u6062\u590d\u5e76\u91cd\u65b0\u7f16\u8bd1";
+  $("loadoutCommandState").className = "accepted";
+} else if (initialSaveStatus.status === "rejected") {
+  $("loadoutCommandState").textContent = "\u5b58\u6863\u5df2\u62d2\u7edd \u00b7 " + initialSaveStatus.code + " \u00b7 \u5df2\u6062\u590d\u57fa\u51c6";
+  $("loadoutCommandState").className = "rejected";
+} else if (initialSaveStatus.status === "write_failed") {
+  $("loadoutCommandState").textContent = "\u672c\u5730\u5b58\u6863\u5199\u5165\u5931\u8d25";
+  $("loadoutCommandState").className = "rejected";
+} else if (initialSaveStatus.status === "read_failed") {
+  $("loadoutCommandState").textContent = "\u672c\u5730\u5b58\u6863\u8bfb\u53d6\u5931\u8d25 \u00b7 \u5df2\u4f7f\u7528\u57fa\u51c6\u6784\u7b51";
+  $("loadoutCommandState").className = "rejected";
+}

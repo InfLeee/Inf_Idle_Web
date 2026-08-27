@@ -1,19 +1,75 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=three-support-slots-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=local-save-v0-1";
 import { createTwoHandedSwordA1DemoOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
+import { createLocalSaveV0, restoreLocalSaveV0, serializeLocalSaveV0 } from "../../packages/save-core/src/local-save-v0.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";
 
-export let loadoutAuthority = createAuthoritativeLoadoutService({
-  config,
-  ownershipInput: createTwoHandedSwordA1DemoOwnership(config),
-});
+export const LOCAL_SAVE_STORAGE_KEY = "inf-idle.local-save.v0";
 
-export function resetLoadoutAuthority() {
-  loadoutAuthority = createAuthoritativeLoadoutService({
+let activeAutoPolicy = Object.freeze(structuredClone(config.build.autoPolicy));
+let localSaveStatus = Object.freeze({ status: "empty", code: null });
+
+function browserStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function createBaselineAuthority() {
+  return createAuthoritativeLoadoutService({
     config,
     ownershipInput: createTwoHandedSwordA1DemoOwnership(config),
   });
+}
+
+function restoreAuthority() {
+  const storage = browserStorage();
+  const baseline = createTwoHandedSwordA1DemoOwnership(config);
+  let serialized;
+  try {
+    serialized = storage?.getItem(LOCAL_SAVE_STORAGE_KEY);
+  } catch (error) {
+    localSaveStatus = Object.freeze({ status: "read_failed", code: error.code ?? "LOCAL_STORAGE_READ_FAILED" });
+    return createBaselineAuthority();
+  }
+  if (!serialized) return createBaselineAuthority();
+  try {
+    const restored = restoreLocalSaveV0(serialized, {
+      configVersion: config.configVersion,
+      registry: baseline.registry,
+      maxSupportsPerSkill: config.build.supportSlotsPerSkill,
+    });
+    activeAutoPolicy = restored.autoPolicy;
+    localSaveStatus = Object.freeze({ status: "restored", code: null });
+    return createAuthoritativeLoadoutService({
+      config,
+      ownershipInput: restored.primaryOwnershipInput,
+      equippedWeaponInstanceId: restored.characterBuild.equippedWeaponInstanceId,
+    });
+  } catch (error) {
+    try {
+      storage?.removeItem(LOCAL_SAVE_STORAGE_KEY);
+    } catch {
+      // A blocked storage backend must not prevent a safe baseline fallback.
+    }
+    localSaveStatus = Object.freeze({ status: "rejected", code: error.code ?? "INVALID_LOCAL_SAVE" });
+    return createBaselineAuthority();
+  }
+}
+
+export let loadoutAuthority = restoreAuthority();
+
+export function resetLoadoutAuthority() {
+  activeAutoPolicy = Object.freeze(structuredClone(config.build.autoPolicy));
+  localSaveStatus = Object.freeze({ status: "reset", code: null });
+  loadoutAuthority = createBaselineAuthority();
   return loadoutAuthority.snapshot();
+}
+
+export function getLocalSaveStatus() {
+  return localSaveStatus;
 }
 
 export function legacyBuildFromSnapshot(snapshot = loadoutAuthority.snapshot()) {
@@ -26,6 +82,15 @@ export function legacyBuildFromSnapshot(snapshot = loadoutAuthority.snapshot()) 
 }
 
 export function publishLoadoutSnapshot(snapshot = loadoutAuthority.snapshot()) {
+  const storage = browserStorage();
+  if (storage) {
+    try {
+      const save = createLocalSaveV0({ configVersion: config.configVersion, snapshot, autoPolicy: activeAutoPolicy });
+      storage.setItem(LOCAL_SAVE_STORAGE_KEY, serializeLocalSaveV0(save));
+    } catch (error) {
+      localSaveStatus = Object.freeze({ status: "write_failed", code: error.code ?? "LOCAL_STORAGE_WRITE_FAILED" });
+    }
+  }
   const legacyBuild = legacyBuildFromSnapshot(snapshot);
   window.dispatchEvent(new CustomEvent("authoritative-loadout-change", {
     detail: { snapshot, legacyBuild },

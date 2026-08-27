@@ -63,7 +63,9 @@ export function createAuthoritativeLoadoutService(options) {
   const commandResults = new Map();
   let version = options.initialVersion ?? 1;
   let currentOwnership = ownershipInput;
-  let equippedWeaponInstanceId = options.equippedWeaponInstanceId ?? ownershipInput.loadout.weaponInstanceId;
+  let equippedWeaponInstanceId = Object.hasOwn(options, "equippedWeaponInstanceId")
+    ? options.equippedWeaponInstanceId
+    : ownershipInput.loadout.weaponInstanceId;
   let currentCompileInput;
   let currentBuild;
 
