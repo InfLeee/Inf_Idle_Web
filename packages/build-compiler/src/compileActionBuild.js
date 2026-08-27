@@ -7,6 +7,7 @@ import {
 } from "../../combat-protocol/src/action-schema.js";
 import { sha256 } from "./sha256.js";
 import { applySupportScriptBindings } from "./applySupportScripts.js";
+import { applySkillReplacementBindings } from "./applySkillReplacements.js";
 
 export const COMPILED_BUILD_SCHEMA_VERSION = "compiled-build-v1";
 
@@ -67,6 +68,14 @@ function assertUniqueIds(items, name) {
   if (new Set(ids).size !== ids.length) throw new Error(`${name} cannot contain duplicate ids`);
 }
 
+function assertDistinctSupportBindings(supportScriptBindings, skillReplacementBindings) {
+  const sourceInstanceIds = new Set(supportScriptBindings.map((binding) => binding.sourceInstanceId));
+  const insertionOrders = new Set(supportScriptBindings.map((binding, index) => binding.insertionOrder ?? index));
+  for (const binding of skillReplacementBindings) {
+    if (sourceInstanceIds.has(binding.sourceInstanceId)) throw new Error("duplicate cross-phase support sourceInstanceId " + binding.sourceInstanceId);
+    if (insertionOrders.has(binding.insertionOrder)) throw new Error("duplicate cross-phase support insertionOrder " + binding.insertionOrder);
+  }
+}
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!value || typeof value !== "object") return value;
@@ -117,6 +126,7 @@ function normalizeSkillEntry(entry) {
   return {
     entryId: entry.entryId,
     definitionId: entry.definitionId,
+    effectiveDefinitionId: entry.effectiveDefinitionId ?? entry.definitionId,
     sourceType: entry.sourceType,
     sourceInstanceId: entry.sourceInstanceId ?? null,
     socketIndex: entry.socketIndex ?? null,
@@ -359,17 +369,20 @@ export function compileActionBuild(input, options = {}) {
   const rawSkills = input.skills ?? [];
   const rawBindings = input.modifierBindings ?? [];
   const rawSupportScriptBindings = input.supportScriptBindings ?? [];
+  const rawSkillReplacementBindings = input.skillReplacementBindings ?? [];
   if (!Array.isArray(rawSkills)) throw new TypeError("ActionBuildInput.skills must be an array");
   if (!Array.isArray(rawBindings)) throw new TypeError("ActionBuildInput.modifierBindings must be an array");
   if (!Array.isArray(rawSupportScriptBindings)) throw new TypeError("ActionBuildInput.supportScriptBindings must be an array");
+  if (!Array.isArray(rawSkillReplacementBindings)) throw new TypeError("ActionBuildInput.skillReplacementBindings must be an array");
+  assertDistinctSupportBindings(rawSupportScriptBindings, rawSkillReplacementBindings);
   enforceLimit("maxSkills", rawSkills.length, budget.maxSkills);
   enforceLimit("maxActions", rawSkills.reduce((total, skill) => total + (Array.isArray(skill?.actions) ? skill.actions.length : 0), 0), budget.maxActions);
-  enforceLimit("maxModifierBindings", rawBindings.length + rawSupportScriptBindings.length, budget.maxModifierBindings);
+  enforceLimit("maxModifierBindings", rawBindings.length + rawSupportScriptBindings.length + rawSkillReplacementBindings.length, budget.maxModifierBindings);
   const countSupportWork = (bindingsToCount) => bindingsToCount.reduce((total, binding) => total +
     (Array.isArray(binding?.script?.operations) ? binding.script.operations.reduce((operationTotal, operation) => operationTotal +
       (Array.isArray(operation?.changes) ? Math.max(1, operation.changes.length) : 1), 0) : 0), 0);
   const rawOperationCount = rawBindings.reduce((total, binding) => total + (Array.isArray(binding?.modifier?.operations) ? binding.modifier.operations.length : 0), 0) +
-    countSupportWork(rawSupportScriptBindings);
+    countSupportWork(rawSupportScriptBindings) + rawSkillReplacementBindings.length;
   enforceLimit("maxModifierOperations", rawOperationCount, budget.maxModifierOperations);
   const inputBytes = new TextEncoder().encode(canonicalStringify(input)).byteLength;
   enforceLimit("maxInputBytes", inputBytes, budget.maxInputBytes);
@@ -384,9 +397,9 @@ export function compileActionBuild(input, options = {}) {
   const totalActions = skills.reduce((total, skill) => total + skill.actions.length, 0);
   enforceLimit("maxActions", totalActions, budget.maxActions);
   const bindings = (input.modifierBindings ?? []).map(normalizeBinding);
-  enforceLimit("maxModifierBindings", bindings.length + rawSupportScriptBindings.length, budget.maxModifierBindings);
+  enforceLimit("maxModifierBindings", bindings.length + rawSupportScriptBindings.length + rawSkillReplacementBindings.length, budget.maxModifierBindings);
   const totalOperations = bindings.reduce((total, binding) => total + binding.modifier.operations.length, 0) +
-    countSupportWork(rawSupportScriptBindings);
+    countSupportWork(rawSupportScriptBindings) + rawSkillReplacementBindings.length;
   enforceLimit("maxModifierOperations", totalOperations, budget.maxModifierOperations);
   const entryIds = new Set(skills.map((skill) => skill.entryId));
   const skillSlots = input.skillSlots ?? [];
@@ -421,6 +434,18 @@ export function compileActionBuild(input, options = {}) {
 
   const diagnostics = [];
   const meter = createWorkMeter(budget);
+  const skillReplacementResult = applySkillReplacementBindings(skills, rawSkillReplacementBindings, {
+    onWork: () => meter.add(),
+    tagRegistry: input.tagRegistry,
+  });
+  for (const item of skillReplacementResult.diagnostics) pushDiagnostic(diagnostics, item, budget);
+  const replacedActionCount = skills.reduce((total, skill) => total + skill.actions.length, 0);
+  enforceLimit("maxActions", replacedActionCount, budget.maxActions);
+  validateInputTags(skills, input.tagRegistry);
+  validateActiveResources(skills, input.buildMetadata);
+  for (const skill of skills) {
+    assertValidActionProtocol({ tagRegistry: input.tagRegistry, actions: skill.actions, modifiers: [] });
+  }
   for (const phase of MODIFIER_PHASE_ORDER.slice(0, 2)) applyPhase(skills, bindings, phase, diagnostics, budget, meter);
   const supportScriptResult = applySupportScriptBindings(skills, rawSupportScriptBindings, {
     onWork: () => meter.add(),
@@ -446,14 +471,17 @@ export function compileActionBuild(input, options = {}) {
     compiledSkills,
     autoPolicy: clone(input.autoPolicy ?? {}),
     buildMetadata: clone(input.buildMetadata ?? {}),
-    supportStatuses: supportScriptResult.supportStatuses.map((item) => deepFreeze(clone(item))),
+    supportStatuses: [...skillReplacementResult.supportStatuses, ...supportScriptResult.supportStatuses]
+      .sort((left, right) => left.insertionOrder - right.insertionOrder)
+      .map((item) => deepFreeze(clone(item))),
     diagnostics: diagnostics.map((item) => deepFreeze(clone(item))),
     compileMetrics: {
       inputBytes,
       skills: skills.length,
-      actions: totalActions,
+      actions: replacedActionCount,
       modifierBindings: bindings.length,
       supportScriptBindings: rawSupportScriptBindings.length,
+      skillReplacementBindings: rawSkillReplacementBindings.length,
       modifierOperations: totalOperations,
       diagnostics: diagnostics.length,
       workUnits: meter.value(),

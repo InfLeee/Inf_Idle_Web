@@ -94,6 +94,20 @@ export function validateCompileInputOwnership(compileInput, ownershipInput) {
     }
   }
 
+  for (const binding of compileInput.skillReplacementBindings ?? []) {
+    if (compiledSupportIds.has(binding.sourceInstanceId)) {
+      issues.push(issue("COMPILED_SUPPORT_INSTANCE_REUSED", "skillReplacementBindings." + binding.replacement.id, String(binding.sourceInstanceId)));
+    }
+    compiledSupportIds.add(binding.sourceInstanceId);
+    const target = compiledEntries.get(binding.attachedSkillEntryId);
+    const connected = loadout.supportConnections[target?.sourceInstanceId] ?? [];
+    const instance = supportInstances.get(binding.sourceInstanceId);
+    if (!target || !connected.includes(binding.sourceInstanceId)) {
+      issues.push(issue("COMPILED_SUPPORT_CONNECTION_MISMATCH", "skillReplacementBindings." + binding.replacement.id, String(binding.sourceInstanceId)));
+    } else if (!instance || instance.definitionId !== binding.sourceDefinitionId) {
+      issues.push(issue("COMPILED_SUPPORT_DEFINITION_MISMATCH", "skillReplacementBindings." + binding.replacement.id, String(binding.sourceInstanceId)));
+    }
+  }
   for (const binding of compileInput.supportScriptBindings ?? []) {
     if (compiledSupportIds.has(binding.sourceInstanceId)) {
       issues.push(issue("COMPILED_SUPPORT_INSTANCE_REUSED", "supportScriptBindings." + binding.script.id, String(binding.sourceInstanceId)));

@@ -1,7 +1,7 @@
 // 双手剑 A1「敏捷骑士」首版运行骨架。
 // 所有带 prototypeValue 的数值仅用于验证链路，不代表正式平衡值。
 export const twoHandedSwordA1Config = {
-  configVersion: "two-handed-sword-a1-prototype-0.1",
+  configVersion: "two-handed-sword-a1-prototype-0.2",
   weapon: {
     id: "two_handed_sword",
     name: "双手剑",
@@ -29,6 +29,7 @@ export const twoHandedSwordA1Config = {
       "bowling_bash",
       "traumatic_blow",
       "ignition_break",
+      "sword_wave_projectile",
     ],
     autoPolicy: {
       priorityLayers: ["temporary", "highlight", "burst", "slot_order"],
@@ -125,6 +126,17 @@ export const twoHandedSwordA1Config = {
       prototypeValue: true,
     },
     {
+      id: "sword_wave_projectile",
+      name: "剑气弹",
+      tags: ["DAMAGE", "PHYSICAL", "PROJECTILE", "ACTIVE_CAST", "HIT", "DIRECT", "TWO_HANDED_SWORD"],
+      stats: { damageMultiplier: 1.1 },
+      actionTimeMs: 700,
+      minActionTimeMs: 200,
+      cooldownMs: 0,
+      resourceCost: 0,
+      prototypeValue: true,
+    },
+    {
       id: "two_handed_sword_aura_blade",
       name: "灵气剑",
       tags: ["DAMAGE", "MELEE", "WEAPON_SKILL", "HIGHLIGHT", "TWO_HANDED_SWORD"],
@@ -147,6 +159,20 @@ export const twoHandedSwordA1Config = {
       actionTimeMs: 0,
       cooldownMs: 0,
       resourceCost: 0,
+    },
+  ],
+  replacementSkills: [
+    {
+      id: "proximity_explosion_skill",
+      name: "近身爆裂",
+      tags: ["DAMAGE", "EXPLOSION", "ACTIVE_CAST", "HIT", "DIRECT", "AREA"],
+      stats: { damageMultiplier: 1 },
+      actionTimeMs: 600,
+      minActionTimeMs: 200,
+      cooldownMs: 0,
+      resourceCost: 0,
+      targeting: { kind: "self_radius", radiusM: 5, maxTargets: 12 },
+      prototypeValue: true,
     },
   ],
   supports: [
@@ -201,6 +227,18 @@ export const twoHandedSwordA1Config = {
       compatibility: { requireAll: ["DAMAGE", "FIRE", "MELEE", "ACTIVE_CAST"] },
       effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.25 }],
       displayText: "仅支持火焰近战技能，伤害提高25%。",
+      prototypeValue: true,
+    },
+    {
+      id: "proximity_detonation_support",
+      name: "近身引爆",
+      compatibility: { requireAll: ["DAMAGE", "PROJECTILE", "ACTIVE_CAST"] },
+      replacementSkillDefinitionId: "proximity_explosion_skill",
+      replacementIdentityChanges: {
+        removeSkillTags: ["PROJECTILE"],
+        addSkillTags: ["EXPLOSION"],
+      },
+      displayText: "将任意子弹技能完整替换为以自身为圆心、半径5米、造成一次爆炸伤害的AOE技能。",
       prototypeValue: true,
     },
   ],

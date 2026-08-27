@@ -10,6 +10,7 @@ export const TARGET_SELECTOR_KIND = Object.freeze({
   SELF: "self",
   CURRENT_TARGET: "current_target",
   ENEMIES_IN_RADIUS: "enemies_in_radius",
+  ENEMIES_AROUND_SELF: "enemies_around_self",
 });
 
 export const EFFECT_KIND = Object.freeze({
@@ -153,7 +154,9 @@ export function createTargetSelector(input) {
   if (input.id !== undefined && input.id !== null) assertId(input.id, "TargetSelector.id");
   if (input.supportSlotTag !== undefined && input.supportSlotTag !== null) assertId(input.supportSlotTag, "TargetSelector.supportSlotTag");
   assertEnum(input.kind, TARGET_SELECTOR_KIND, "TargetSelector.kind");
-  if (input.kind === TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS) {
+  const isRadiusSelector = input.kind === TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS ||
+    input.kind === TARGET_SELECTOR_KIND.ENEMIES_AROUND_SELF;
+  if (isRadiusSelector) {
     assertFiniteNumber(input.radiusM, "TargetSelector.radiusM", 0);
     if (input.maxTargets !== undefined && input.maxTargets !== null) {
       if (!Number.isInteger(input.maxTargets) || input.maxTargets < 1) {
@@ -165,7 +168,7 @@ export function createTargetSelector(input) {
     id: input.id ?? null,
     supportSlotTag: input.supportSlotTag ?? null,
     kind: input.kind,
-    ...(input.kind === TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS
+    ...(isRadiusSelector
       ? { radiusM: input.radiusM, maxTargets: input.maxTargets ?? null }
       : {}),
   });

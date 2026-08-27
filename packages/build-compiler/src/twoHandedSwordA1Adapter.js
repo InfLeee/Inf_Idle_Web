@@ -19,6 +19,7 @@ import {
   SUPPORT_TARGET_MODE,
   createSupportScriptDefinition,
 } from "../../combat-protocol/src/support-script-v1.js";
+import { createSkillReplacementDefinition } from "../../combat-protocol/src/skill-replacement-v1.js";
 const ACTION_TAGS = new Set([
   "HIT",
   "DIRECT",
@@ -64,13 +65,16 @@ function createIdentityTagChanges(definition) {
 function createRegistry(config) {
   const skillTags = new Set();
   const actionTags = new Set(ACTION_TAGS);
-  for (const skill of config.skills) {
+  for (const skill of [...config.skills, ...(config.replacementSkills ?? [])]) {
     for (const tag of skill.tags ?? []) {
       (ACTION_TAGS.has(tag) ? actionTags : skillTags).add(tag);
     }
   }
   for (const support of config.supports) {
-    for (const change of createIdentityTagChanges(support)) {
+    for (const change of [
+      ...createIdentityTagChanges(support),
+      ...createIdentityTagChanges({ identityChanges: support.replacementIdentityChanges }),
+    ]) {
       (change.tagScope === "action" ? actionTags : skillTags).add(change.tag);
     }
   }
@@ -146,9 +150,17 @@ function createSkillEntry(skill, identity = {}) {
       actionTags,
       targeting: isUtility
         ? { id: skill.id + ".selector.main", supportSlotTag: "SELF_SELECTOR", kind: TARGET_SELECTOR_KIND.SELF }
-        : isArea
-          ? { id: skill.id + ".selector.main", supportSlotTag: "MAIN_AREA_SELECTOR", kind: TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS, radiusM: 3.5, maxTargets: 8 }
-          : { id: skill.id + ".selector.main", supportSlotTag: "MAIN_TARGET_SELECTOR", kind: TARGET_SELECTOR_KIND.CURRENT_TARGET },
+        : skill.targeting?.kind === "self_radius"
+          ? {
+            id: skill.id + ".selector.main",
+            supportSlotTag: "MAIN_AREA_SELECTOR",
+            kind: TARGET_SELECTOR_KIND.ENEMIES_AROUND_SELF,
+            radiusM: skill.targeting.radiusM,
+            maxTargets: skill.targeting.maxTargets ?? null,
+          }
+          : isArea
+            ? { id: skill.id + ".selector.main", supportSlotTag: "MAIN_AREA_SELECTOR", kind: TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS, radiusM: 3.5, maxTargets: 8 }
+            : { id: skill.id + ".selector.main", supportSlotTag: "MAIN_TARGET_SELECTOR", kind: TARGET_SELECTOR_KIND.CURRENT_TARGET },
       timing,
       costs: skill.resourceCost
         ? [{ resourceId: "a_fighting_spirit", amount: skill.resourceCost, timing: "on_start" }]
@@ -169,7 +181,8 @@ function splitCompatibilityTags(tags = []) {
 }
 function createSupportBindings(config, assignments, equippedEntries) {
   const supportMap = indexById(config.supports);
-  return assignments.map((assignment, index) => {
+  return assignments.filter((assignment) => !supportMap.get(assignment.supportId)?.replacementSkillDefinitionId)
+    .map((assignment, index) => {
     const definition = supportMap.get(assignment.supportId);
     if (!definition) throw new Error("Unknown support: " + assignment.supportId);
     const target = equippedEntries.find((entry) => (
@@ -226,6 +239,42 @@ function createSupportBindings(config, assignments, equippedEntries) {
   });
 }
 
+function createSkillReplacementBindings(config, assignments, equippedEntries) {
+  const supportMap = indexById(config.supports);
+  const replacementMap = indexById(config.replacementSkills ?? []);
+  return assignments.filter((assignment) => supportMap.get(assignment.supportId)?.replacementSkillDefinitionId)
+    .map((assignment, index) => {
+      const support = supportMap.get(assignment.supportId);
+      const target = equippedEntries.find((entry) => (
+        assignment.skillEntryId ? entry.entryId === assignment.skillEntryId : entry.definitionId === assignment.skillId
+      ));
+      if (!target) throw new Error("Skill replacement target is not equipped: " + (assignment.skillEntryId ?? assignment.skillId));
+      const replacementSkill = replacementMap.get(support.replacementSkillDefinitionId);
+      if (!replacementSkill) throw new Error("Unknown replacement skill: " + support.replacementSkillDefinitionId);
+      const replacementEntry = createSkillEntry(replacementSkill, {
+        entryId: "replacement-template:" + replacementSkill.id,
+        sourceInstanceId: "server-template:" + replacementSkill.id,
+      });
+      const compatibility = splitCompatibilityTags(support.compatibility?.requireAll).skill;
+      const excluded = splitCompatibilityTags(support.compatibility?.excludeAny).skill;
+      const identity = support.replacementIdentityChanges ?? {};
+      return {
+        replacement: createSkillReplacementDefinition({
+          id: "skill-replacement:" + support.id,
+          effectiveDefinitionId: replacementSkill.id,
+          compatibility: { skillAll: compatibility, skillNone: excluded },
+          removeSkillTags: identity.removeSkillTags ?? [],
+          addSkillTags: identity.addSkillTags ?? [],
+          runtime: replacementEntry.runtime,
+          actions: replacementEntry.actions,
+        }),
+        sourceDefinitionId: support.id,
+        sourceInstanceId: assignment.supportInstanceId ?? "prototype:" + support.id + ":" + index,
+        attachedSkillEntryId: target.entryId,
+        insertionOrder: assignment.insertionOrder ?? index,
+      };
+    });
+}
 function createMasteryBindings(config, selectedNodeIds, compiledEntries) {
   const nodeMap = indexById(config.masteryNodes);
   return selectedNodeIds.flatMap((nodeId, nodeOrder) => {
@@ -266,6 +315,7 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
     ...weaponEntries.map((entry) => createSkillEntry(skillMap.get(entry.definitionId), entry)),
   ];
   const supportScriptBindings = createSupportBindings(config, selection.supportAssignments, equippedEntries);
+  const skillReplacementBindings = createSkillReplacementBindings(config, selection.supportAssignments, equippedEntries);
   const modifierBindings = createMasteryBindings(config, selection.masteryNodeIds, compiledEntries);
   return {
     configVersion: config.configVersion,
@@ -277,6 +327,7 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
     weaponSkillEntryIds: weaponEntries.map((entry) => entry.entryId),
     modifierBindings,
     supportScriptBindings,
+    skillReplacementBindings,
     autoPolicy: structuredClone(config.build.autoPolicy),
     buildMetadata: {
       weaponId: config.weapon.id,
@@ -295,6 +346,9 @@ function toLegacySkill(entry, original) {
   const resource = action.effects.find((effect) => effect.id === "resource_gain");
   return {
     ...structuredClone(original),
+    name: action.name,
+    tags: [...entry.skillTags, ...action.actionTags],
+    effectiveDefinitionId: entry.effectiveDefinitionId,
     stats: {
       ...structuredClone(original.stats ?? {}),
       ...(damage ? {

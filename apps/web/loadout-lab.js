@@ -20,6 +20,7 @@ const SKILL_IMAGES = {
   bowling_bash: "./assets/skill-collision.png",
   traumatic_blow: "./assets/skill-execute.png",
   ignition_break: "./assets/skill-collision.png",
+  sword_wave_projectile: "./assets/skill-storm.png",
 };
 
 let snapshot = loadoutAuthority.snapshot();
@@ -47,7 +48,8 @@ function modifierOperationLabel(operation) {
 }
 
 function definitionName(registry, definitionId) {
-  return registry.skills[definitionId]?.name ?? registry.supports[definitionId]?.name ?? definitionId;
+  return registry.skills[definitionId]?.name ?? registry.supports[definitionId]?.name ??
+    config.replacementSkills?.find((item) => item.id === definitionId)?.name ?? definitionId;
 }
 
 function execute(command, proofKey = null) {
@@ -218,6 +220,15 @@ function actionMetrics(entry) {
   return { castTimeMs, damageMultiplier: damage, text: `${castTimeMs}ms · ${damage === null ? "非伤害" : damage.toFixed(2) + "×"}` };
 }
 
+function targetingLabel(entry) {
+  const selector = entry?.actions?.[0]?.targeting;
+  if (!selector) return "无目标规则";
+  if (selector.kind === "enemies_around_self") return `自身周围 ${selector.radiusM}m · 最多 ${selector.maxTargets ?? "不限"} 个目标`;
+  if (selector.kind === "enemies_in_radius") return `目标范围 ${selector.radiusM}m · 最多 ${selector.maxTargets ?? "不限"} 个目标`;
+  if (selector.kind === "current_target") return "当前目标";
+  return "自身";
+}
+
 function compileWithoutSupports() {
   if (!snapshot.characterBuild.equippedWeaponInstanceId || !snapshot.combatReady) return null;
   const ownership = structuredClone(snapshot.ownershipInput);
@@ -271,12 +282,20 @@ function renderBackend(registry) {
     const base = actionMetrics(baselineByEntry.get(entry.entryId));
     const final = actionMetrics(entry);
     const sources = supportsBySkill.get(entry.entryId) ?? [];
-    return `<tr class="${base?.text !== final?.text ? "changed" : ""}"><td><b>${definitionName(registry, entry.definitionId)}</b><small>${entry.sourceInstanceId}</small><small>最终 TAG：${entry.skillTags.join(" · ")}</small></td><td>${base?.text ?? "—"}</td><td><strong>${final?.text ?? "—"}</strong></td><td>${sources.length ? sources.join(" + ") : "无辅助修改"}</td></tr>`;
+    const replaced = entry.effectiveDefinitionId !== entry.definitionId;
+    const name = replaced
+      ? `${definitionName(registry, entry.definitionId)} → ${definitionName(registry, entry.effectiveDefinitionId)}`
+      : definitionName(registry, entry.definitionId);
+    return `<tr class="${base?.text !== final?.text || replaced ? "changed" : ""}"><td><b>${name}</b><small>${entry.sourceInstanceId}</small><small>最终 TAG：${entry.skillTags.join(" · ")}</small><small>目标规则：${targetingLabel(entry)}</small></td><td>${base?.text ?? "—"}</td><td><strong>${final?.text ?? "—"}</strong></td><td>${sources.length ? sources.join(" + ") : "无辅助修改"}</td></tr>`;
   }).join("");
   const evidence = [
     ...applied.map((item) => {
       const status = statusByInstance.get(item.sourceInstanceId);
-      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId)?.definitionId)} · ${supportStatusLabel(status?.status)} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${item.operations.map(modifierOperationLabel).join("，")}</span>`;
+      const target = build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId);
+      const operationText = item.type === "skill_replacement"
+        ? `完整技能替换 → ${definitionName(registry, item.effectiveDefinitionId)} · ${targetingLabel(target)} · 单次爆炸`
+        : item.operations.map(modifierOperationLabel).join("，");
+      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, target?.definitionId)} · ${supportStatusLabel(status?.status)} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${operationText}</span>`;
     }),
     ...conflicted.map((item) => `<span class="rejected"><b>${definitionName(registry, item.sourceDefinitionId)}</b> · 互斥失效 · 胜者 ${definitionName(registry, item.winnerSourceDefinitionId)} · 胜者顺序 ${item.winnerInsertionOrder}</span>`),
   ];

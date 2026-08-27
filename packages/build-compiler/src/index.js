@@ -158,3 +158,4 @@ export function compileBuild(input) {
     diagnostics,
   };
 }
+export * from "./applySkillReplacements.js";
