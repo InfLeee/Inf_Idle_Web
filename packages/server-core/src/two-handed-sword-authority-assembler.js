@@ -21,7 +21,7 @@ function assertConfigMatchesAuthority(config, ownershipInput) {
 export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, options = {}) {
   assertValidWeaponLoadoutOwnership(ownershipInput, {
     requireCombatReady: true,
-    maxSupportsPerSkill: options.maxSupportsPerSkill ?? config.supports.length,
+    maxSupportsPerSkill: options.maxSupportsPerSkill ?? config.build?.supportSlotsPerSkill ?? config.supports.length,
   });
   const weapon = assertConfigMatchesAuthority(config, ownershipInput);
   const skillInstances = indexBy(ownershipInput.skillCardInstances, "instanceId");

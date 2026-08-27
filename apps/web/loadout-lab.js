@@ -1,8 +1,8 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=support-transition-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=three-support-slots-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=support-transition-1";
+import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=three-support-slots-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -132,7 +132,7 @@ function renderSockets(skillInstances, registry) {
     const supports = instanceId ? connections[instanceId] ?? [] : [];
     return `<article class="authority-socket ${selectedSocketIndex === index ? "selected" : ""} ${instance ? "filled" : "empty"}" data-socket-index="${index}">
       <b>${index + 1}</b>
-      ${instance ? `<img src="${SKILL_IMAGES[instance.definitionId]}" alt=""><div><strong>${definition.name}</strong><small>${instance.instanceId}</small><span>${supports.length} 张辅助卡</span></div><button type="button" data-remove-socket="${index}" aria-label="卸下技能">×</button>` : `<div><strong>空孔</strong><small>点击选择，再从背包装入</small></div>`}
+      ${instance ? `<img src="${SKILL_IMAGES[instance.definitionId]}" alt=""><div><strong>${definition.name}</strong><small>${instance.instanceId}</small><span>${supports.length} / ${config.build.supportSlotsPerSkill} 张辅助卡</span></div><button type="button" data-remove-socket="${index}" aria-label="卸下技能">×</button>` : `<div><strong>空孔</strong><small>点击选择，再从背包装入</small></div>`}
     </article>`;
   }).join("");
   $("authoritySockets").querySelectorAll("[data-socket-index]").forEach((node) => node.addEventListener("click", () => {
@@ -162,13 +162,16 @@ function renderInventory(skillInstances, registry) {
 function renderSupports(supportInstances, registry) {
   const selectedSkillId = snapshot.ownershipInput.loadout.skillSockets[selectedSocketIndex];
   const connections = snapshot.ownershipInput.loadout.supportConnections;
+  const selectedSupports = selectedSkillId ? connections[selectedSkillId] ?? [] : [];
+  const supportLimit = config.build.supportSlotsPerSkill;
   const statusByInstance = new Map((snapshot.compiledBuild?.supportStatuses ?? []).map((item) => [item.sourceInstanceId, item]));
   $("selectedSocketLabel").textContent = selectedSkillId
-    ? `当前目标：孔 ${selectedSocketIndex + 1} · ${supportInstances.size} 张可用`
+    ? `当前目标：孔 ${selectedSocketIndex + 1} · 已装 ${selectedSupports.length} / ${supportLimit} · ${supportInstances.size} 张可用`
     : `当前目标：孔 ${selectedSocketIndex + 1}（空）· ${supportInstances.size} 张可用`;
   $("authoritySupports").innerHTML = [...supportInstances.values()].map((instance) => {
     const attachedTarget = Object.entries(connections).find(([, ids]) => ids.includes(instance.instanceId))?.[0];
     const active = attachedTarget === selectedSkillId;
+    const capacityBlocked = !active && selectedSupports.length >= supportLimit;
     const targetIndex = snapshot.ownershipInput.loadout.skillSockets.indexOf(attachedTarget);
     const status = statusByInstance.get(instance.instanceId);
     const definition = config.supports.find((item) => item.id === instance.definitionId);
@@ -179,9 +182,9 @@ function renderSupports(supportInstances, registry) {
       "explosion_aoe_amplification_support",
       "projectile_amplification_support",
     ].includes(instance.definitionId) ? "transition-test" : "";
-    return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass} ${transitionTest}" data-support-instance="${instance.instanceId}">
+    return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass} ${transitionTest}" data-support-instance="${instance.instanceId}" ${capacityBlocked ? "disabled" : ""}>
       <strong>${definitionName(registry, instance.definitionId)}</strong>
-      <small>${attachedTarget ? `已连接孔 ${targetIndex + 1} · ${supportStatusLabel(status?.status)}` : "未连接"}</small>
+      <small>${attachedTarget ? `已连接孔 ${targetIndex + 1} · ${supportStatusLabel(status?.status)}` : capacityBlocked ? "辅助槽已满" : "未连接"}</small>
       <em>${requirements}</em>
     </button>`;
   }).join("");
@@ -242,7 +245,7 @@ function compileWithoutSupports() {
   const ownership = structuredClone(snapshot.ownershipInput);
   ownership.loadout.supportConnections = {};
   ownership.loadout.supportInsertionOrder = {};
-  return compileActionBuild(assembleTwoHandedSwordA1CompileInput(config, ownership, { maxSupportsPerSkill: 2 }));
+  return compileActionBuild(assembleTwoHandedSwordA1CompileInput(config, ownership, { maxSupportsPerSkill: config.build.supportSlotsPerSkill }));
 }
 
 function setCheck(id, passed) {

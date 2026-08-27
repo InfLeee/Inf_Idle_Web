@@ -54,7 +54,7 @@ function cloneOwnership(base, loadout) {
 export function createAuthoritativeLoadoutService(options) {
   const { config, ownershipInput } = options ?? {};
   if (!config || !ownershipInput) throw new TypeError("config and ownershipInput are required");
-  const maxSupportsPerSkill = options.maxSupportsPerSkill ?? config.supports.length;
+  const maxSupportsPerSkill = options.maxSupportsPerSkill ?? config.build?.supportSlotsPerSkill ?? config.supports.length;
   const maxCommandResults = options.maxCommandResults ?? 1_024;
   if (!Number.isInteger(maxCommandResults) || maxCommandResults < 1) throw new RangeError("maxCommandResults must be a positive integer");
   if (!Number.isInteger(options.initialVersion ?? 1) || (options.initialVersion ?? 1) < 1) {

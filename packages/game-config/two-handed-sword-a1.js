@@ -1,7 +1,7 @@
 // 双手剑 A1「敏捷骑士」首版运行骨架。
 // 所有带 prototypeValue 的数值仅用于验证链路，不代表正式平衡值。
 export const twoHandedSwordA1Config = {
-  configVersion: "two-handed-sword-a1-prototype-0.4",
+  configVersion: "two-handed-sword-a1-prototype-0.5",
   weapon: {
     id: "two_handed_sword",
     name: "双手剑",
@@ -14,6 +14,7 @@ export const twoHandedSwordA1Config = {
     name: "A1 敏捷骑士",
     branch: "A1",
     pointBudget: 30,
+    supportSlotsPerSkill: 3,
     defaultMasteryNodeIds: ["start", "family_choice", "a_bd_choice"],
     defaultSkillSlots: [
       "two_handed_sword_slash",

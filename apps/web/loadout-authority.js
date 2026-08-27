@@ -1,19 +1,17 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=support-transition-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=three-support-slots-1";
 import { createTwoHandedSwordA1DemoOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";
 
 export let loadoutAuthority = createAuthoritativeLoadoutService({
   config,
   ownershipInput: createTwoHandedSwordA1DemoOwnership(config),
-  maxSupportsPerSkill: 2,
 });
 
 export function resetLoadoutAuthority() {
   loadoutAuthority = createAuthoritativeLoadoutService({
     config,
     ownershipInput: createTwoHandedSwordA1DemoOwnership(config),
-    maxSupportsPerSkill: 2,
   });
   return loadoutAuthority.snapshot();
 }
