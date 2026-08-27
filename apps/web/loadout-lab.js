@@ -1,9 +1,9 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=build-sync-2";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=build-sync-3";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
-import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=build-sync-2";
-import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=build-sync-2";
+import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=build-sync-3";
+import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=build-sync-3";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -59,19 +59,30 @@ function definitionName(registry, definitionId) {
 }
 
 function execute(command, proofKey = null) {
+  let committedSnapshot;
   try {
-    snapshot = command();
-    $("loadoutCommandState").textContent = "服务器确认成功";
-    $("loadoutCommandState").className = "accepted";
-    if (proofKey) acceptanceProof[proofKey] = true;
-    render();
-    publishLoadoutSnapshot(snapshot);
-    return true;
+    committedSnapshot = command();
   } catch (error) {
     $("loadoutCommandState").textContent = `已拒绝 · ${error.code ?? error.message}`;
     $("loadoutCommandState").className = "rejected";
     return false;
   }
+
+  snapshot = committedSnapshot;
+  // The authoritative commit is published before presentation work. A local
+  // panel error must never leave the combat build on an older loadout version.
+  publishLoadoutSnapshot(snapshot);
+  $("loadoutCommandState").textContent = "服务器确认成功";
+  $("loadoutCommandState").className = "accepted";
+  if (proofKey) acceptanceProof[proofKey] = true;
+  try {
+    render();
+  } catch (error) {
+    console.error("Loadout committed, but the loadout lab failed to render", error);
+    $("loadoutCommandState").textContent = "服务器确认成功 · 装备界面刷新异常";
+    $("loadoutCommandState").className = "rejected";
+  }
+  return true;
 }
 
 function equipSkill(skillInstanceId) {
@@ -507,7 +518,7 @@ function toggleWeapon() {
   weaponStatesSeen.add(equipped ? "unequipped" : "equipped");
   acceptanceProof.weapon = weaponStatesSeen.has("equipped") && weaponStatesSeen.has("unequipped");
   acceptanceMessages.push(equipped ? "武器已卸下：服务器撤销编译快照并禁止战斗。" : "武器已重新穿戴：服务器依据武器实例恢复五孔构筑。");
-  render();
+  renderAcceptance();
 }
 
 function runAcceptance() {

@@ -2,12 +2,12 @@ import {
   currentLoadoutSnapshot,
   loadoutAuthority,
   subscribeLoadoutSnapshot,
-} from "./loadout-authority.js?v=build-sync-2";
+} from "./loadout-authority.js?v=build-sync-3";
 import {
   advanceCompiledCombat,
   createCompiledCombatState,
   TARGET_SELECTOR_KIND,
-} from "../../packages/combat-runtime/src/index.js?v=build-sync-2";
+} from "../../packages/combat-runtime/src/index.js?v=build-sync-3";
 import {
   RUNTIME_RETENTION,
   clearTransientNodes,
