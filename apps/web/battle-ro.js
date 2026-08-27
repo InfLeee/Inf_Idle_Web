@@ -1,9 +1,13 @@
-import { loadoutAuthority } from "./loadout-authority.js?v=compiled-runtime-1";
+import {
+  currentLoadoutSnapshot,
+  loadoutAuthority,
+  subscribeLoadoutSnapshot,
+} from "./loadout-authority.js?v=build-sync-2";
 import {
   advanceCompiledCombat,
   createCompiledCombatState,
   TARGET_SELECTOR_KIND,
-} from "../../packages/combat-runtime/src/index.js?v=compiled-runtime-1";
+} from "../../packages/combat-runtime/src/index.js?v=build-sync-2";
 import {
   RUNTIME_RETENTION,
   clearTransientNodes,
@@ -16,6 +20,17 @@ import {
 } from "./runtime-retention.js";
 
 const $ = (id) => document.getElementById(id);
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+})[character]);
+const SUPPORT_STATUS_TEXT = Object.freeze({
+  active: "生效",
+  partial: "部分生效",
+  incompatible: "不兼容",
+  mutual_exclusion: "互斥失效",
+  effect_invalid: "目标无效",
+  config_error: "配置错误",
+});
 const COMBAT_START_MS = 4_000;
 const COMBAT_CYCLE_MS = 60_000;
 const RADAR_RADIUS_M = 30;
@@ -36,6 +51,8 @@ const SKILL_IMAGES = {
   storm_slash: "./assets/skill-storm.png",
   bowling_bash: "./assets/skill-collision.png",
   traumatic_blow: "./assets/skill-execute.png",
+  ignition_break: "./assets/skill-collision.png",
+  sword_wave_projectile: "./assets/skill-storm.png",
 };
 let compiledBuild;
 let combatRuntimeState;
@@ -103,24 +120,42 @@ function compile(snapshot = loadoutAuthority.snapshot()) {
 function renderBuild() {
   const byEntry = new Map((compiledBuild?.compiledSkills ?? []).map((skill) => [skill.entryId, skill]));
   const slots = compiledBuild?.skillSlots.map((entryId) => entryId ? byEntry.get(entryId) : null) ?? Array(5).fill(null);
-  $("skillBar").innerHTML = slots.map((skill) => {
-    if (!skill) return `<article class="skill-slot empty"><div><strong>空孔</strong><small>未携带技能</small></div></article>`;
+  const supportStatuses = compiledBuild?.supportStatuses ?? [];
+  const supportRegistry = authoritySnapshot.ownershipInput.registry.supports ?? {};
+  const supportsBySkill = new Map();
+  for (const status of supportStatuses) {
+    const list = supportsBySkill.get(status.attachedSkillEntryId) ?? [];
+    list.push(status);
+    supportsBySkill.set(status.attachedSkillEntryId, list);
+  }
+  $("skillBar").innerHTML = slots.map((skill, socketIndex) => {
+    if (!skill) return `<article class="skill-slot empty"><div><strong>孔 ${socketIndex + 1} · 空</strong><small>未携带技能</small></div></article>`;
     const action = skill.actions[0];
     const image = SKILL_IMAGES[skill.definitionId] ?? "./assets/skill-slash.png";
     const timing = skill.runtime.backgroundAction ? "独立时钟" : `${action.timing.cooldownMs / 1000}s 冷却`;
-    return `<article class="skill-slot" data-skill-id="${skill.definitionId}"><img src="${image}" alt="${action.name}"><div><strong>${action.name}</strong><small>${timing}</small></div></article>`;
+    const supports = supportsBySkill.get(skill.entryId) ?? [];
+    const supportHtml = supports.length
+      ? supports.map((status) => {
+        const name = supportRegistry[status.sourceDefinitionId]?.name ?? status.sourceDefinitionId;
+        const statusText = SUPPORT_STATUS_TEXT[status.status] ?? status.status;
+        const statusClass = String(status.status).replace(/[^a-z_-]/g, "");
+        return `<span class="skill-support ${statusClass}" title="${escapeHtml(name)} · ${escapeHtml(statusText)}">${escapeHtml(name)}<b>${escapeHtml(statusText)}</b></span>`;
+      }).join("")
+      : '<span class="skill-support none">未连接辅助卡</span>';
+    return `<article class="skill-slot" data-skill-id="${escapeHtml(skill.definitionId)}"><img src="${image}" alt="${escapeHtml(action.name)}"><div><strong>孔 ${socketIndex + 1} · ${escapeHtml(action.name)}</strong><small>${timing}</small></div><div class="skill-support-list">${supportHtml}</div></article>`;
   }).join("");
-  const connectionCount = Object.values(authoritySnapshot.ownershipInput.loadout.supportConnections)
-    .reduce((total, ids) => total + ids.length, 0);
-  $("supportCards").innerHTML = `<span class="support-card active">${connectionCount} 张实例已进入最终 Action 编译</span>`;
-  const slash = compiledBuild?.compiledSkills.find((skill) => skill.definitionId === "two_handed_sword_slash");
-  const slashAction = slash?.actions[0];
-  const damage = slashAction?.effects.find((effect) => effect.kind === "direct_damage");
-  $("compiledSlash").textContent = slashAction && damage
-    ? `最终斩击：${Math.round(slashAction.timing.castTimeMs ?? slashAction.timing.tickIntervalMs ?? 0)}ms · ${damage.params.multiplier.toFixed(2)}×`
-    : "当前未携带斩击";
+  const activeSupportCount = supportStatuses.filter((status) => status.status === "active" || status.status === "partial").length;
+  $("supportCards").innerHTML = `<span class="support-card active">${supportStatuses.length} 张连接 · ${activeSupportCount} 张生效</span><span class="support-card">武器技能 ${compiledBuild?.weaponSkillEntryIds.length ?? 0} 个</span>`;
+  const primarySkill = slots.find(Boolean);
+  const primaryAction = primarySkill?.actions[0];
+  const damage = primaryAction?.effects.find((effect) => effect.kind === "direct_damage");
+  const actionTimeMs = primaryAction?.timing.castTimeMs ?? primaryAction?.timing.tickIntervalMs ?? 0;
+  const range = primaryAction?.targeting.radiusM ? ` · ${primaryAction.targeting.radiusM}m 范围` : "";
+  $("compiledSlash").textContent = primaryAction && damage
+    ? `当前主技能：${primaryAction.name} · ${Math.round(actionTimeMs)}ms · ${damage.params.multiplier.toFixed(2)}×${range}`
+    : "当前没有可执行的主技能";
   $("compileStatus").textContent = compiledBuild
-    ? `权威 CompiledBuild · ${compiledBuild.buildHash.slice(0, 8)} · Loadout v${authoritySnapshot.loadoutVersion}`
+    ? `已实时同步 · ${compiledBuild.buildHash.slice(0, 8)} · Loadout v${authoritySnapshot.loadoutVersion}`
     : `构筑未就绪 · Loadout v${authoritySnapshot.loadoutVersion}`;
   $("startBtn").disabled = false;
 }
@@ -587,7 +622,7 @@ function frame(timestamp) {
 frameLoop = createSingleFlightAnimationLoop(frame);
 
 function synchronizeCombatBuild() {
-  const latest = loadoutAuthority.snapshot();
+  const latest = currentLoadoutSnapshot();
   const latestHash = latest.compiledBuild?.buildHash ?? null;
   const currentHash = compiledBuild?.buildHash ?? null;
   if (latest.loadoutVersion !== authoritySnapshot.loadoutVersion || latestHash !== currentHash) {
@@ -605,11 +640,11 @@ function synchronizeCombatBuild() {
 }
 
 $("startBtn").addEventListener("click", () => {
+  if (!synchronizeCombatBuild()) return;
   if (running) {
     running = false;
     frameLoop.stop();
   } else {
-    if (!synchronizeCombatBuild()) return;
     running = true;
     lastFrame = 0;
     frameLoop.start();
@@ -635,11 +670,19 @@ document.querySelectorAll("[data-speed]").forEach((button) => button.addEventLis
   document.querySelectorAll("[data-speed]").forEach((item) => item.classList.toggle("active", item === button));
 }));
 
-window.addEventListener("authoritative-loadout-change", (event) => {
-  compile(event.detail.snapshot);
+function applyAuthoritativeSnapshot(snapshot) {
+  const changed = snapshot.loadoutVersion !== authoritySnapshot.loadoutVersion ||
+    (snapshot.compiledBuild?.buildHash ?? null) !== (compiledBuild?.buildHash ?? null);
+  if (!changed) return;
+  const resume = running;
+  compile(snapshot);
   renderBuild();
   reset();
-  if (compiledBuild) startAutomatically();
+  if (compiledBuild && resume) startAutomatically();
+}
+
+window.addEventListener("authoritative-loadout-change", (event) => {
+  applyAuthoritativeSnapshot(event.detail.snapshot);
 });
 function startAutomatically() {
   if (!compiledBuild) return;
@@ -650,7 +693,8 @@ function startAutomatically() {
   }, 420);
 }
 
-compile();
+compile(currentLoadoutSnapshot());
 renderBuild();
 reset();
+subscribeLoadoutSnapshot(applyAuthoritativeSnapshot);
 startAutomatically();

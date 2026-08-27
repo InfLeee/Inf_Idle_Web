@@ -1,5 +1,5 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=compiled-runtime-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=build-sync-2";
 import { createTwoHandedSwordA1InventoryLabOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
 import { createLocalSaveV0, restoreLocalSaveV0, serializeLocalSaveV0 } from "../../packages/save-core/src/local-save-v0.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";
@@ -8,6 +8,19 @@ export const LOCAL_SAVE_STORAGE_KEY = "inf-idle.local-save.v0.2";
 
 let activeAutoPolicy = Object.freeze(structuredClone(config.build.autoPolicy));
 let localSaveStatus = Object.freeze({ status: "empty", code: null });
+const LOADOUT_CHANNEL_KEY = Symbol.for("inf-idle.authoritative-loadout-channel.v1");
+const loadoutChannel = globalThis[LOADOUT_CHANNEL_KEY] ??= { snapshot: null, listeners: new Set() };
+
+function publishSharedSnapshot(snapshot) {
+  loadoutChannel.snapshot = snapshot;
+  for (const listener of [...loadoutChannel.listeners]) {
+    try {
+      listener(snapshot);
+    } catch (error) {
+      console.error("authoritative loadout subscriber failed", error);
+    }
+  }
+}
 
 function browserStorage() {
   try {
@@ -68,6 +81,18 @@ function restoreAuthority() {
 }
 
 export let loadoutAuthority = restoreAuthority();
+if (loadoutChannel.snapshot === null) loadoutChannel.snapshot = loadoutAuthority.snapshot();
+
+export function currentLoadoutSnapshot() {
+  return loadoutChannel.snapshot ?? loadoutAuthority.snapshot();
+}
+
+export function subscribeLoadoutSnapshot(listener) {
+  if (typeof listener !== "function") throw new TypeError("loadout snapshot listener must be a function");
+  loadoutChannel.listeners.add(listener);
+  listener(currentLoadoutSnapshot());
+  return () => loadoutChannel.listeners.delete(listener);
+}
 
 export function resetLoadoutAuthority() {
   activeAutoPolicy = Object.freeze(structuredClone(config.build.autoPolicy));
@@ -90,6 +115,7 @@ export function legacyBuildFromSnapshot(snapshot = loadoutAuthority.snapshot()) 
 }
 
 export function publishLoadoutSnapshot(snapshot = loadoutAuthority.snapshot()) {
+  publishSharedSnapshot(snapshot);
   const storage = browserStorage();
   if (storage) {
     try {
