@@ -1,7 +1,7 @@
 // 双手剑 A1「敏捷骑士」首版运行骨架。
 // 所有带 prototypeValue 的数值仅用于验证链路，不代表正式平衡值。
 export const twoHandedSwordA1Config = {
-  configVersion: "two-handed-sword-a1-prototype-0.3",
+  configVersion: "two-handed-sword-a1-prototype-0.4",
   weapon: {
     id: "two_handed_sword",
     name: "双手剑",
@@ -247,6 +247,14 @@ export const twoHandedSwordA1Config = {
       compatibility: { requireAll: ["DAMAGE", "EXPLOSION", "ACTIVE_CAST", "AREA"] },
       effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.25 }],
       displayText: "仅支持具有爆炸技能身份且主体Action为范围AOE的技能，爆炸伤害提高25%。",
+      prototypeValue: true,
+    },
+    {
+      id: "projectile_amplification_support",
+      name: "子弹增幅",
+      compatibility: { requireAll: ["DAMAGE", "PROJECTILE", "ACTIVE_CAST"] },
+      effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.2 }],
+      displayText: "仅支持子弹技能，伤害提高20%；技能主体被替换且失去PROJECTILE后立即失效。",
       prototypeValue: true,
     },
   ],

@@ -1,8 +1,8 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=support-transition-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js";
+import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=support-transition-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -164,17 +164,25 @@ function renderSupports(supportInstances, registry) {
   const connections = snapshot.ownershipInput.loadout.supportConnections;
   const statusByInstance = new Map((snapshot.compiledBuild?.supportStatuses ?? []).map((item) => [item.sourceInstanceId, item]));
   $("selectedSocketLabel").textContent = selectedSkillId
-    ? `当前目标：孔 ${selectedSocketIndex + 1}`
-    : `当前目标：孔 ${selectedSocketIndex + 1}（空）`;
+    ? `当前目标：孔 ${selectedSocketIndex + 1} · ${supportInstances.size} 张可用`
+    : `当前目标：孔 ${selectedSocketIndex + 1}（空）· ${supportInstances.size} 张可用`;
   $("authoritySupports").innerHTML = [...supportInstances.values()].map((instance) => {
     const attachedTarget = Object.entries(connections).find(([, ids]) => ids.includes(instance.instanceId))?.[0];
     const active = attachedTarget === selectedSkillId;
     const targetIndex = snapshot.ownershipInput.loadout.skillSockets.indexOf(attachedTarget);
     const status = statusByInstance.get(instance.instanceId);
+    const definition = config.supports.find((item) => item.id === instance.definitionId);
+    const requirements = definition?.compatibility?.requireAll?.join(" + ") ?? "无TAG限制";
     const statusClass = status?.status === "mutual_exclusion" ? "mutual-exclusion" : "";
-    return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass}" data-support-instance="${instance.instanceId}">
+    const transitionTest = [
+      "proximity_detonation_support",
+      "explosion_aoe_amplification_support",
+      "projectile_amplification_support",
+    ].includes(instance.definitionId) ? "transition-test" : "";
+    return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass} ${transitionTest}" data-support-instance="${instance.instanceId}">
       <strong>${definitionName(registry, instance.definitionId)}</strong>
       <small>${attachedTarget ? `已连接孔 ${targetIndex + 1} · ${supportStatusLabel(status?.status)}` : "未连接"}</small>
+      <em>${requirements}</em>
     </button>`;
   }).join("");
   $("authoritySupports").querySelectorAll("[data-support-instance]").forEach((button) => button.addEventListener("click", () => {
