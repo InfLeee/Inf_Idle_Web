@@ -134,6 +134,7 @@ function trace(binding, operation, skill, status, details = {}) {
     sourceKind: MODIFIER_SOURCE_KIND.SUPPORT_CARD,
     sourceDefinitionId: binding.sourceDefinitionId,
     sourceInstanceId: binding.sourceInstanceId,
+    conflictGroup: binding.script.conflictGroup,
     phase: operation?.phase ?? null,
     status,
     operationId: operation?.id ?? null,
@@ -215,6 +216,29 @@ function assertKnownSupportScriptTags(bindings, tagRegistry) {
   }
 }
 
+function resolveScriptConflictGroups(bindings, skillByEntry, statusByInstance, diagnostics) {
+  const groups = new Map();
+  for (const binding of bindings) {
+    if (statusByInstance.has(binding.sourceInstanceId) || !binding.script.conflictGroup) continue;
+    const key = binding.attachedSkillEntryId + ":" + binding.script.conflictGroup;
+    const entries = groups.get(key) ?? [];
+    entries.push(binding);
+    groups.set(key, entries);
+  }
+  for (const entries of groups.values()) {
+    entries.sort(bindingSort);
+    const winner = entries[0];
+    for (const loser of entries.slice(1)) {
+      statusByInstance.set(loser.sourceInstanceId, SUPPORT_CARD_STATUS.MUTUAL_EXCLUSION);
+      diagnostics.push(trace(loser, null, skillByEntry.get(loser.attachedSkillEntryId), SUPPORT_CARD_STATUS.MUTUAL_EXCLUSION, {
+        winnerSourceDefinitionId: winner.sourceDefinitionId,
+        winnerSourceInstanceId: winner.sourceInstanceId,
+        winnerInsertionOrder: winner.insertionOrder,
+      }));
+    }
+  }
+}
+
 export function applySupportScriptBindings(skills, rawBindings = [], options = {}) {
   const bindings = rawBindings.map(normalizeBinding).sort(bindingSort);
   assertKnownSupportScriptTags(bindings, options.tagRegistry);
@@ -233,9 +257,11 @@ export function applySupportScriptBindings(skills, rawBindings = [], options = {
     }
   }
 
+  resolveScriptConflictGroups(bindings, skillByEntry, statusByInstance, diagnostics);
+
   for (const phase of SUPPORT_OPERATION_PHASE_ORDER) {
     for (const binding of bindings) {
-      if (statusByInstance.get(binding.sourceInstanceId) === SUPPORT_CARD_STATUS.INCOMPATIBLE) continue;
+      if (statusByInstance.has(binding.sourceInstanceId)) continue;
       const skill = skillByEntry.get(binding.attachedSkillEntryId);
       for (const operation of binding.script.operations.filter((item) => item.phase === phase)) {
         const resolved = resolveSelectedTargets(skill, operation, onWork);
@@ -271,6 +297,7 @@ export function applySupportScriptBindings(skills, rawBindings = [], options = {
     sourceInstanceId: binding.sourceInstanceId,
     attachedSkillEntryId: binding.attachedSkillEntryId,
     insertionOrder: binding.insertionOrder,
+    conflictGroup: binding.script.conflictGroup,
     status: statusByInstance.get(binding.sourceInstanceId),
   }));
   return { diagnostics, supportStatuses };

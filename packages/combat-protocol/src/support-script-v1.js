@@ -111,7 +111,6 @@ export function createSupportScriptDefinition(input) {
   if (new Set(operations.map((operation) => operation.id)).size !== operations.length) throw new Error("SupportScriptDefinition operation ids must be unique");
   if (input.conflictGroup !== undefined && input.conflictGroup !== null) {
     assertId(input.conflictGroup, "SupportScriptDefinition.conflictGroup");
-    throw new Error("Support Script V1 conflictGroup is reserved but not implemented; use Modifier conflict groups until enabled");
   }
   return deepFreeze({
     kind: "SupportScriptDefinition",

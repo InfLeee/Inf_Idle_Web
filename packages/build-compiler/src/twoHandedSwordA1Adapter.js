@@ -167,6 +167,7 @@ function createSupportBindings(config, assignments, equippedEntries) {
         version: SUPPORT_SCRIPT_VERSION,
         id: "support-script:" + definition.id,
         compatibility: { skillAll: compatibility, skillNone: excluded },
+        conflictGroup: definition.conflictGroup ?? null,
         operations: [{
           id: "modify-main-action",
           kind: SUPPORT_OPERATION_KIND.MODIFY,

@@ -5,6 +5,14 @@ import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1
 import { legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js";
 
 const $ = (id) => document.getElementById(id);
+const SUPPORT_STATUS_LABELS = Object.freeze({
+  active: "已生效",
+  partial: "部分生效",
+  incompatible: "不兼容",
+  mutual_exclusion: "互斥失效",
+  effect_invalid: "目标无效",
+  config_error: "配置错误",
+});
 const SKILL_IMAGES = {
   two_handed_sword_slash: "./assets/skill-slash.png",
   bash: "./assets/skill-bash.png",
@@ -23,6 +31,10 @@ let acceptanceMessages = [];
 
 function requestId(kind) {
   return `loadout-ui-${kind}-${requestSerial++}`;
+}
+
+function supportStatusLabel(status) {
+  return SUPPORT_STATUS_LABELS[status] ?? status ?? "未编译";
 }
 
 function definitionName(registry, definitionId) {
@@ -139,6 +151,7 @@ function renderInventory(skillInstances, registry) {
 function renderSupports(supportInstances, registry) {
   const selectedSkillId = snapshot.ownershipInput.loadout.skillSockets[selectedSocketIndex];
   const connections = snapshot.ownershipInput.loadout.supportConnections;
+  const statusByInstance = new Map((snapshot.compiledBuild?.supportStatuses ?? []).map((item) => [item.sourceInstanceId, item]));
   $("selectedSocketLabel").textContent = selectedSkillId
     ? `当前目标：孔 ${selectedSocketIndex + 1}`
     : `当前目标：孔 ${selectedSocketIndex + 1}（空）`;
@@ -146,9 +159,11 @@ function renderSupports(supportInstances, registry) {
     const attachedTarget = Object.entries(connections).find(([, ids]) => ids.includes(instance.instanceId))?.[0];
     const active = attachedTarget === selectedSkillId;
     const targetIndex = snapshot.ownershipInput.loadout.skillSockets.indexOf(attachedTarget);
-    return `<button type="button" class="authority-support ${active ? "active" : ""}" data-support-instance="${instance.instanceId}">
+    const status = statusByInstance.get(instance.instanceId);
+    const statusClass = status?.status === "mutual_exclusion" ? "mutual-exclusion" : "";
+    return `<button type="button" class="authority-support ${active ? "active" : ""} ${statusClass}" data-support-instance="${instance.instanceId}">
       <strong>${definitionName(registry, instance.definitionId)}</strong>
-      <small>${attachedTarget ? `已连接孔 ${targetIndex + 1}` : "未连接"}</small>
+      <small>${attachedTarget ? `已连接孔 ${targetIndex + 1} · ${supportStatusLabel(status?.status)}` : "未连接"}</small>
     </button>`;
   }).join("");
   $("authoritySupports").querySelectorAll("[data-support-instance]").forEach((button) => button.addEventListener("click", () => {
@@ -235,13 +250,13 @@ function renderBackend(registry) {
   const baseline = compileWithoutSupports();
   const baselineByEntry = new Map(baseline.compiledSkills.map((entry) => [entry.entryId, entry]));
   const applied = build.diagnostics.filter((item) => item.sourceKind === "support_card" && item.status === "applied");
+  const conflicted = build.diagnostics.filter((item) => item.sourceKind === "support_card" && item.status === "mutual_exclusion");
   const statusByInstance = new Map(build.supportStatuses.map((item) => [item.sourceInstanceId, item]));
   const supportsBySkill = new Map();
-  for (const item of applied) {
-    const names = supportsBySkill.get(item.skillEntryId) ?? [];
-    const status = statusByInstance.get(item.sourceInstanceId);
-    names.push(`${definitionName(registry, item.sourceDefinitionId)}（${status?.status ?? "unknown"} · 顺序 ${status?.insertionOrder ?? "?"}）`);
-    supportsBySkill.set(item.skillEntryId, names);
+  for (const status of build.supportStatuses) {
+    const names = supportsBySkill.get(status.attachedSkillEntryId) ?? [];
+    names.push(`${definitionName(registry, status.sourceDefinitionId)}（${supportStatusLabel(status.status)} · 顺序 ${status.insertionOrder}）`);
+    supportsBySkill.set(status.attachedSkillEntryId, names);
   }
   $("backendSkillRows").innerHTML = build.compiledSkills.filter((entry) => entry.sourceType === "skill_card").map((entry) => {
     const base = actionMetrics(baselineByEntry.get(entry.entryId));
@@ -249,11 +264,15 @@ function renderBackend(registry) {
     const sources = supportsBySkill.get(entry.entryId) ?? [];
     return `<tr class="${base?.text !== final?.text ? "changed" : ""}"><td><b>${definitionName(registry, entry.definitionId)}</b><small>${entry.sourceInstanceId}</small></td><td>${base?.text ?? "—"}</td><td><strong>${final?.text ?? "—"}</strong></td><td>${sources.length ? sources.join(" + ") : "无辅助修改"}</td></tr>`;
   }).join("");
-  $("backendModifierEvidence").innerHTML = applied.length
-    ? applied.map((item) => {
+  const evidence = [
+    ...applied.map((item) => {
       const status = statusByInstance.get(item.sourceInstanceId);
-      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId)?.definitionId)} · 状态 ${status?.status ?? "unknown"} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${item.operations.map((operation) => operation.path + " × " + operation.value).join("，")}</span>`;
-    }).join("")
+      return `<span><b>${definitionName(registry, item.sourceDefinitionId)}</b> → ${definitionName(registry, build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId)?.definitionId)} · ${supportStatusLabel(status?.status)} · 插入顺序 ${status?.insertionOrder ?? "?"} · ${item.operations.map((operation) => operation.path + " × " + operation.value).join("，")}</span>`;
+    }),
+    ...conflicted.map((item) => `<span class="rejected"><b>${definitionName(registry, item.sourceDefinitionId)}</b> · 互斥失效 · 胜者 ${definitionName(registry, item.winnerSourceDefinitionId)} · 胜者顺序 ${item.winnerInsertionOrder}</span>`),
+  ];
+  $("backendModifierEvidence").innerHTML = evidence.length
+    ? evidence.join("")
     : "<span>连接辅助卡后，这里会显示服务器确认的来源实例、目标技能和运算路径。</span>";
   const runtime = simulateTwoHandedSwordA1(legacyBuildFromSnapshot(snapshot), { durationMs: 5_000 });
   const slash = build.compiledSkills.find((entry) => entry.definitionId === "two_handed_sword_slash");
