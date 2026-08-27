@@ -1,9 +1,9 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=slot-bound-supports-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=compiled-runtime-1";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
-import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
-import { getLocalSaveStatus, legacyBuildFromSnapshot, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=slot-bound-supports-1";
+import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=compiled-runtime-1";
+import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=compiled-runtime-1";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -472,12 +472,14 @@ function renderBackend(registry) {
   $("backendModifierEvidence").innerHTML = evidence.length
     ? evidence.join("")
     : "<span>连接辅助卡后，这里会显示服务器确认的来源实例、目标技能和运算路径。</span>";
-  const runtime = simulateTwoHandedSwordA1(legacyBuildFromSnapshot(snapshot), { durationMs: 5_000 });
+  const runtime = simulateCompiledCombat(build, { durationMs: 5_000, resourceDefinitions: config.resources });
+  const runtimeDamageEvents = runtime.events.filter((event) => event.type === "damage_intent");
+  const runtimeSlashEvents = runtimeDamageEvents.filter((event) => event.skillDefinitionId === "two_handed_sword_slash");
   const slash = build.compiledSkills.find((entry) => entry.definitionId === "two_handed_sword_slash");
   const metric = actionMetrics(slash);
   $("backendBattleProof").textContent = slash
-    ? `5 秒运行时：后台斩击 ${runtime.summary.slashCount} 次；服务器最终值 ${metric.damageMultiplier.toFixed(2)}× / ${metric.castTimeMs}ms。`
-    : `5 秒运行时：斩击未装孔，后台斩击 ${runtime.summary.slashCount} 次。`;
+    ? `5 秒通用Runtime：最终Action伤害事件 ${runtimeDamageEvents.length} 次；服务器最终值 ${metric.damageMultiplier.toFixed(2)}× / ${metric.castTimeMs}ms。`
+    : `5 秒通用Runtime：斩击未装孔，后台斩击 ${runtimeSlashEvents.length} 次。`;
   const changed = applied.some((item) => actionMetrics(baselineByEntry.get(item.skillEntryId))?.text !== actionMetrics(build.compiledSkills.find((entry) => entry.entryId === item.skillEntryId))?.text);
   $("backendProofState").textContent = changed ? "辅助修改已生效" : "等待辅助卡修改";
   $("backendProofState").className = changed ? "passed" : "";

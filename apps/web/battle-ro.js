@@ -1,5 +1,9 @@
-import { legacyBuildFromSnapshot, loadoutAuthority } from "./loadout-authority.js";
-import { simulateTwoHandedSwordA1 } from "../../tools/simulator/twoHandedSwordA1.js";
+import { loadoutAuthority } from "./loadout-authority.js?v=compiled-runtime-1";
+import {
+  advanceCompiledCombat,
+  createCompiledCombatState,
+  TARGET_SELECTOR_KIND,
+} from "../../packages/combat-runtime/src/index.js?v=compiled-runtime-1";
 import {
   RUNTIME_RETENTION,
   clearTransientNodes,
@@ -17,6 +21,7 @@ const COMBAT_CYCLE_MS = 60_000;
 const RADAR_RADIUS_M = 30;
 const MELEE_RANGE_M = 3.4;
 const REVIVE_DELAY_MS = 5_000;
+const DEMO_CONTROL_EVENTS = Object.freeze([{ atMs: 12_300, kind: "stun" }]);
 const MAX_MONSTERS = 4;
 const MONSTER_TYPES = [
   { id: "slime", name: "绿波波", hp: 800, heal: 80, sprite: "./assets/monster-slime.png" },
@@ -32,7 +37,8 @@ const SKILL_IMAGES = {
   bowling_bash: "./assets/skill-collision.png",
   traumatic_blow: "./assets/skill-execute.png",
 };
-let build;
+let compiledBuild;
+let combatRuntimeState;
 let authoritySnapshot = loadoutAuthority.snapshot();
 let simulation;
 let combatTemplate = [];
@@ -66,8 +72,8 @@ let cleanupFeedbackTimer = null;
 
 function compile(snapshot = loadoutAuthority.snapshot()) {
   authoritySnapshot = snapshot;
-  build = legacyBuildFromSnapshot(snapshot);
-  if (!build) {
+  compiledBuild = snapshot.compiledBuild;
+  if (!compiledBuild) {
     combatTemplate = [];
     const detail = snapshot.characterBuild.equippedWeaponInstanceId === null
       ? "请先从背包装备一把武器"
@@ -75,39 +81,48 @@ function compile(snapshot = loadoutAuthority.snapshot()) {
     simulation = { log: [{ at: 0, type: "radar", label: "构筑未就绪", detail, value: "等待构筑" }] };
     return false;
   }
-  const combat = simulateTwoHandedSwordA1(build, { durationMs: 60_000 });
-  combatTemplate = combat.log;
+  combatRuntimeState = createCompiledCombatState(compiledBuild);
+  const combat = advanceCompiledCombat({
+    state: combatRuntimeState,
+    compiledBuild,
+    untilMs: COMBAT_CYCLE_MS,
+    controlEvents: DEMO_CONTROL_EVENTS,
+  });
+  combatRuntimeState = combat.state;
+  combatTemplate = combat.events;
   nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
   simulation = {
     log: [
       { at: 0, type: "radar", label: "开始扫描", detail: "搜索草原 30m 战斗视域", value: "扫描中" },
-      ...combat.log.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })),
+      ...combat.events.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })),
     ].sort((left, right) => left.at - right.at),
   };
   return true;
 }
 
-function skillById(id) {
-  return build?.compiledSkills.find((skill) => skill.id === id);
-}
-
 function renderBuild() {
-  const slots = build?.skillSlots ?? Array(5).fill(null);
-  $("skillBar").innerHTML = slots.map((skill) => skill ? `<article class="skill-slot" data-skill-id="${skill.id}">
-    <img src="${SKILL_IMAGES[skill.id]}" alt="${skill.name}"><div><strong>${skill.name}</strong><small>${skill.backgroundAction ? "独立时钟" : `${skill.cooldownMs / 1000}s 冷却`}</small></div>
-  </article>` : `<article class="skill-slot empty"><div><strong>空孔</strong><small>未携带技能</small></div>
-  </article>`).join("");
+  const byEntry = new Map((compiledBuild?.compiledSkills ?? []).map((skill) => [skill.entryId, skill]));
+  const slots = compiledBuild?.skillSlots.map((entryId) => entryId ? byEntry.get(entryId) : null) ?? Array(5).fill(null);
+  $("skillBar").innerHTML = slots.map((skill) => {
+    if (!skill) return `<article class="skill-slot empty"><div><strong>空孔</strong><small>未携带技能</small></div></article>`;
+    const action = skill.actions[0];
+    const image = SKILL_IMAGES[skill.definitionId] ?? "./assets/skill-slash.png";
+    const timing = skill.runtime.backgroundAction ? "独立时钟" : `${action.timing.cooldownMs / 1000}s 冷却`;
+    return `<article class="skill-slot" data-skill-id="${skill.definitionId}"><img src="${image}" alt="${action.name}"><div><strong>${action.name}</strong><small>${timing}</small></div></article>`;
+  }).join("");
   const connectionCount = Object.values(authoritySnapshot.ownershipInput.loadout.supportConnections)
     .reduce((total, ids) => total + ids.length, 0);
-  $("supportCards").innerHTML = `<span class="support-card active">${connectionCount} 张实例已由服务器连接</span>`;
-  const slash = build?.compiledSkills.find((skill) => skill.id === "two_handed_sword_slash");
-  $("compiledSlash").textContent = slash
-    ? `最终斩击：${Math.round(slash.actionTimeMs)}ms · ${slash.stats.damageMultiplier.toFixed(2)}×`
+  $("supportCards").innerHTML = `<span class="support-card active">${connectionCount} 张实例已进入最终 Action 编译</span>`;
+  const slash = compiledBuild?.compiledSkills.find((skill) => skill.definitionId === "two_handed_sword_slash");
+  const slashAction = slash?.actions[0];
+  const damage = slashAction?.effects.find((effect) => effect.kind === "direct_damage");
+  $("compiledSlash").textContent = slashAction && damage
+    ? `最终斩击：${Math.round(slashAction.timing.castTimeMs ?? slashAction.timing.tickIntervalMs ?? 0)}ms · ${damage.params.multiplier.toFixed(2)}×`
     : "当前未携带斩击";
-  $("compileStatus").textContent = build
-    ? `权威快照 · Loadout v${authoritySnapshot.loadoutVersion}`
+  $("compileStatus").textContent = compiledBuild
+    ? `权威 CompiledBuild · ${compiledBuild.buildHash.slice(0, 8)} · Loadout v${authoritySnapshot.loadoutVersion}`
     : `构筑未就绪 · Loadout v${authoritySnapshot.loadoutVersion}`;
-  $("startBtn").disabled = !build;
+  $("startBtn").disabled = false;
 }
 
 function reset() {
@@ -122,7 +137,7 @@ function reset() {
   eventIndex = 0;
   visibleLogCount = 0;
   monsters = [];
-  pendingSpawns = build ? [
+  pendingSpawns = compiledBuild ? [
     { at: 1_150, typeIndex: 0, angle: -108 },
     { at: 1_650, typeIndex: 1, angle: -20 },
     { at: 2_200, typeIndex: 2, angle: 62 },
@@ -143,8 +158,19 @@ function reset() {
   playerHp = 100;
   playerState = "alive";
   reviveAt = 0;
+  if (compiledBuild) {
+    combatRuntimeState = createCompiledCombatState(compiledBuild);
+    const segment = advanceCompiledCombat({
+      state: combatRuntimeState,
+      compiledBuild,
+      untilMs: COMBAT_CYCLE_MS,
+      controlEvents: DEMO_CONTROL_EVENTS,
+    });
+    combatRuntimeState = segment.state;
+    combatTemplate = segment.events;
+  }
   nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
-  simulation.log = build ? [
+  simulation.log = compiledBuild ? [
     { at: 0, type: "radar", label: "开始扫描", detail: "搜索草原 30m 战斗视域", value: "扫描中" },
     ...combatTemplate.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })),
   ].sort((left, right) => left.at - right.at) : [{
@@ -154,7 +180,7 @@ function reset() {
     detail: authoritySnapshot.characterBuild.equippedWeaponInstanceId === null ? "请先装备武器" : "请为武器装入技能卡",
     value: "待机",
   }];
-  $("eventLog").innerHTML = build
+  $("eventLog").innerHTML = compiledBuild
     ? '<div class="empty-log"><strong>正在准备草原战斗</strong><span>雷达会自动发现多个目标并开始挂机战斗。</span></div>'
     : '<div class="empty-log"><strong>当前没有可运行的战斗构筑</strong><span>从背包将武器拖入独立武器栏后，战斗会自动开始。</span></div>';
   $("radarUnits").replaceChildren();
@@ -395,8 +421,16 @@ function updatePlayerLife() {
 
 function extendCombatTimeline() {
   while (simTime + 5_000 >= nextCombatCycleAt) {
-    simulation.log.push(...combatTemplate.map((event) => ({ ...event, at: event.at + nextCombatCycleAt })));
-    nextCombatCycleAt += COMBAT_CYCLE_MS;
+    const nextUntilMs = combatRuntimeState.nowMs + COMBAT_CYCLE_MS;
+    const segment = advanceCompiledCombat({
+      state: combatRuntimeState,
+      compiledBuild,
+      untilMs: nextUntilMs,
+      controlEvents: DEMO_CONTROL_EVENTS,
+    });
+    combatRuntimeState = segment.state;
+    simulation.log.push(...segment.events.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })));
+    nextCombatCycleAt = COMBAT_START_MS + combatRuntimeState.nowMs;
   }
 }
 
@@ -477,12 +511,12 @@ function defeatMonster(monster, event) {
   scheduleReplacement(monster);
 }
 
-function applyDamage(event, skill, monster, factor = 1) {
+function applyDamage(event, skillName, multiplier, hitCount, monster) {
   if (!monster || monster.state !== "engaged") return;
-  const value = Math.round((skill?.stats?.damageMultiplier ?? 0) * 100 * factor);
+  const value = Math.round(multiplier * Math.max(1, hitCount) * 100);
   damageAccumulator.record(value);
   monster.hp = Math.max(0, monster.hp - value);
-  addLog(event, `${skill.name}命中`, factor < 1 ? "范围波及" : "自动锁定", monster.name, value.toLocaleString());
+  addLog(event, `${skillName}命中`, hitCount > 1 ? `${hitCount}段伤害` : "最终Effect结算", monster.name, value.toLocaleString());
   spawnRadarFloat(monster, `-${value.toLocaleString()}`);
   flashMonster(monster.id);
   if (monster.hp <= 0) defeatMonster(monster, event);
@@ -492,33 +526,36 @@ function processEvent(event) {
   if (playerState === "dead" && event.type !== "radar") return;
   if (event.type === "radar") {
     addLog(event, event.label, event.detail, "草原视域", event.value, "system");
-  } else if (event.type === "background_attack") {
-    const target = primaryTarget();
-    if (!target) return;
-    slashCount += 1;
-    const skill = skillById(event.skillId);
-    applyDamage(event, skill, target);
-    flash(event.skillId);
-  } else if (event.type === "skill_cast") {
-    const targets = engagedMonsters();
-    if (!targets.length) return;
-    const skill = skillById(event.skillId);
-    const target = primaryTarget();
-    const isArea = event.skillId === "bowling_bash" || event.skillId === "ignition_break";
-    if (isArea) targets.forEach((monster) => applyDamage(event, skill, monster, monster.id === target.id ? 1 : .72));
-    else applyDamage(event, skill, target);
-    spirit = Math.min(100, spirit + (skill?.resourceGain ?? 0));
-    if (skill?.resourceGain) spawnFloat(`+${skill.resourceGain} 斗气`, "resource");
-    if (event.skillId === "two_handed_sword_aura_blade") auraCount += 1;
-    flash(event.skillId);
-  } else if (event.type === "state_enter") {
-    overclock = true;
-    addLog(event, "状态获得", "灵气剑超频", "自身", "启动", "state");
-    spawnFloat("灵气剑超频", "state");
-  } else if (event.type === "state_exit") {
-    overclock = false;
-    spirit = 0;
-    addLog(event, "状态结束", "斗气耗尽", "自身", "结束", "state");
+  } else if (event.type === "action_started" || event.type === "channel_started") {
+    addLog(event, event.type === "channel_started" ? "开始持续引导" : "开始释放", event.skillName, "当前目标", event.timingKind, "state");
+    flash(event.skillDefinitionId);
+  } else if (event.type === "damage_intent") {
+    const engaged = engagedMonsters();
+    const primary = primaryTarget();
+    if (!primary) return;
+    const area = event.targeting.kind === TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS ||
+      event.targeting.kind === TARGET_SELECTOR_KIND.ENEMIES_AROUND_SELF;
+    const maxTargets = event.targeting.maxTargets ?? engaged.length;
+    const targets = area ? engaged.slice(0, maxTargets) : [primary];
+    targets.forEach((monster) => applyDamage(event, event.skillName, event.multiplier, event.hitCount, monster));
+    if (event.skillDefinitionId === "two_handed_sword_slash") slashCount += 1;
+    if (event.skillDefinitionId === "two_handed_sword_aura_blade") auraCount += 1;
+    flash(event.skillDefinitionId);
+  } else if (event.type === "resource_changed") {
+    spirit = event.after;
+    if (event.delta !== 0) spawnFloat(`${event.delta > 0 ? "+" : ""}${event.delta} 斗气`, "resource");
+  } else if (event.type === "state_applied") {
+    overclock = event.stateId === "aura_blade_overclock" || overclock;
+    addLog(event, "状态获得", event.stateId, "自身", event.durationMs === null ? "持续" : `${event.durationMs / 1000}s`, "state");
+    spawnFloat(event.stateId, "state");
+  } else if (event.type === "state_expired") {
+    if (event.stateId === "aura_blade_overclock") overclock = false;
+    addLog(event, "状态结束", event.stateId, "自身", "结束", "state");
+  } else if (event.type === "action_interrupted") {
+    addLog(event, "释放被打断", event.controlKind, "自身", "失败", "state");
+    spawnFloat("眩晕打断", "damage");
+  } else if (event.type === "channel_tick" || event.type === "channel_ended") {
+    addLog(event, event.type === "channel_tick" ? "引导结算" : "引导结束", event.actionId, "自身", event.reason ?? "Tick", "state");
   }
   $("logSummary").textContent = `${visibleLogCount} 条事件 · ${running ? "实时滚动" : "已暂停"}`;
 }
@@ -532,7 +569,6 @@ function frame(timestamp) {
   extendCombatTimeline();
   updatePlayerLife();
   updateWorld();
-  if (overclock) spirit = Math.max(0, spirit - 12.5 * elapsed / 1000);
   while (eventIndex < simulation.log.length && simulation.log[eventIndex].at <= simTime) {
     processEvent(simulation.log[eventIndex]);
     eventIndex += 1;
@@ -550,11 +586,30 @@ function frame(timestamp) {
 
 frameLoop = createSingleFlightAnimationLoop(frame);
 
+function synchronizeCombatBuild() {
+  const latest = loadoutAuthority.snapshot();
+  const latestHash = latest.compiledBuild?.buildHash ?? null;
+  const currentHash = compiledBuild?.buildHash ?? null;
+  if (latest.loadoutVersion !== authoritySnapshot.loadoutVersion || latestHash !== currentHash) {
+    compile(latest);
+    renderBuild();
+    reset();
+  }
+  if (compiledBuild) return true;
+  const detail = latest.characterBuild.equippedWeaponInstanceId === null
+    ? "请先把背包武器装入角色武器栏"
+    : "请先在当前武器的五孔中装入至少一张技能卡";
+  $("logSummary").textContent = `无法开始 · ${detail}`;
+  $("compileStatus").textContent = `构筑未就绪 · Loadout v${latest.loadoutVersion}`;
+  return false;
+}
+
 $("startBtn").addEventListener("click", () => {
   if (running) {
     running = false;
     frameLoop.stop();
   } else {
+    if (!synchronizeCombatBuild()) return;
     running = true;
     lastFrame = 0;
     frameLoop.start();
@@ -584,10 +639,10 @@ window.addEventListener("authoritative-loadout-change", (event) => {
   compile(event.detail.snapshot);
   renderBuild();
   reset();
-  if (build) startAutomatically();
+  if (compiledBuild) startAutomatically();
 });
 function startAutomatically() {
-  if (!build) return;
+  if (!compiledBuild) return;
   if (autoStartTimer !== null) clearTimeout(autoStartTimer);
   autoStartTimer = setTimeout(() => {
     autoStartTimer = null;

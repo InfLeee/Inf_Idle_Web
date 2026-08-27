@@ -68,6 +68,26 @@ function assertUniqueIds(items, name) {
   if (new Set(ids).size !== ids.length) throw new Error(`${name} cannot contain duplicate ids`);
 }
 
+function normalizeResourceDefinitions(input = []) {
+  if (!Array.isArray(input)) throw new TypeError("ActionBuildInput.resourceDefinitions must be an array");
+  const definitions = input.map((item, index) => {
+    assertRecord(item, `ActionBuildInput.resourceDefinitions[${index}]`);
+    assertId(item.id, `ActionBuildInput.resourceDefinitions[${index}].id`);
+    const min = item.min ?? 0;
+    const max = item.max ?? Number.MAX_SAFE_INTEGER;
+    const initial = item.initial ?? 0;
+    if (![min, max, initial].every(Number.isFinite)) {
+      throw new TypeError(`ActionBuildInput.resourceDefinitions[${index}] bounds must be finite`);
+    }
+    if (max < min || initial < min || initial > max) {
+      throw new RangeError(`ActionBuildInput.resourceDefinitions[${index}] has invalid bounds`);
+    }
+    return { id: item.id, min, max, initial };
+  });
+  assertUniqueIds(definitions, "ActionBuildInput.resourceDefinitions");
+  return definitions;
+}
+
 function assertDistinctSupportBindings(supportScriptBindings, skillReplacementBindings) {
   const sourceInstanceIds = new Set(supportScriptBindings.map((binding) => binding.sourceInstanceId));
   const insertionOrders = new Set(supportScriptBindings.map((binding, index) => binding.insertionOrder ?? index));
@@ -354,6 +374,7 @@ function hashPayload(snapshot) {
     skillSlots: snapshot.skillSlots,
     weaponSkillEntryIds: snapshot.weaponSkillEntryIds,
     compiledSkills: snapshot.compiledSkills,
+    resourceDefinitions: snapshot.resourceDefinitions,
     autoPolicy: snapshot.autoPolicy,
     buildMetadata: snapshot.buildMetadata,
     supportStatuses: snapshot.supportStatuses,
@@ -392,6 +413,7 @@ export function compileActionBuild(input, options = {}) {
     throw new Error(`Action schema mismatch: expected ${ACTION_SCHEMA_VERSION}, received ${input.actionSchemaVersion}`);
   }
   const skills = (input.skills ?? []).map(normalizeSkillEntry);
+  const resourceDefinitions = normalizeResourceDefinitions(input.resourceDefinitions);
   assertUniqueIds(skills, "ActionBuildInput.skills");
   enforceLimit("maxSkills", skills.length, budget.maxSkills);
   const totalActions = skills.reduce((total, skill) => total + skill.actions.length, 0);
@@ -469,6 +491,7 @@ export function compileActionBuild(input, options = {}) {
     skillSlots: [...skillSlots],
     weaponSkillEntryIds: [...weaponSkillEntryIds],
     compiledSkills,
+    resourceDefinitions: resourceDefinitions.map((item) => deepFreeze(clone(item))),
     autoPolicy: clone(input.autoPolicy ?? {}),
     buildMetadata: clone(input.buildMetadata ?? {}),
     supportStatuses: [...skillReplacementResult.supportStatuses, ...supportScriptResult.supportStatuses]

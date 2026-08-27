@@ -146,8 +146,13 @@ export const twoHandedSwordA1Config = {
       stats: { damageMultiplier: 1.5 },
       actionTimeMs: 900,
       cooldownMs: 0,
-      resourceCost: 0,
+      resourceCost: 100,
       activationResource: 100,
+      applyState: {
+        stateId: "aura_blade_overclock",
+        durationMs: 8000,
+        backgroundActionIntervalMultiplier: 0.7,
+      },
       prototypeValue: true,
     },
     {

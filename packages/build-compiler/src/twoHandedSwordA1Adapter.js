@@ -110,6 +110,19 @@ function createSkillEntry(skill, identity = {}) {
       params: { resourceId: "a_fighting_spirit", amount: skill.resourceGain },
     });
   }
+  if (skill.applyState) {
+    effects.push({
+      id: `state_${skill.applyState.stateId}`,
+      kind: EFFECT_KIND.APPLY_STATE,
+      params: {
+        stateId: skill.applyState.stateId,
+        durationMs: skill.applyState.durationMs ?? null,
+        ...(skill.applyState.backgroundActionIntervalMultiplier !== undefined
+          ? { backgroundActionIntervalMultiplier: skill.applyState.backgroundActionIntervalMultiplier }
+          : {}),
+      },
+    });
+  }
   if (effects.length === 0) {
     effects.push({
       id: "utility_state",
@@ -322,6 +335,10 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
   const supportScriptBindings = createSupportBindings(config, selection.supportAssignments, equippedEntries);
   const skillReplacementBindings = createSkillReplacementBindings(config, selection.supportAssignments, equippedEntries);
   const modifierBindings = createMasteryBindings(config, selection.masteryNodeIds, compiledEntries);
+  const activeResourceIds = selection.buildMetadata?.activeResourceDefinitionIds;
+  const resourceDefinitions = config.resources
+    .filter((resource) => !Array.isArray(activeResourceIds) || activeResourceIds.includes(resource.id))
+    .map(({ id, min, max, initial }) => ({ id, min, max, initial }));
   return {
     configVersion: config.configVersion,
     domainSchemaVersion: "weapon-loadout-v1",
@@ -330,6 +347,7 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
     skills,
     skillSlots: slotEntries.map((entry) => entry?.entryId ?? null),
     weaponSkillEntryIds: weaponEntries.map((entry) => entry.entryId),
+    resourceDefinitions,
     modifierBindings,
     supportScriptBindings,
     skillReplacementBindings,

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
   <title>双手剑 · 实时战斗日志</title>
-  <link rel="stylesheet" href="./theme-ro.css?v=slot-bound-supports-1">
+  <link rel="stylesheet" href="./theme-ro.css?v=compiled-runtime-1">
 </head>
 <body>
   <div class="app-shell">
@@ -90,6 +90,36 @@
           <button id="weaponToggleBtn" type="button" class="weapon-toggle equip">装上当前查看武器</button>
         </div>
       </section>
+      <div class="lower-grid">
+      <section class="log-panel">
+        <div class="log-toolbar">
+          <div><h2>战斗日志</h2><span id="logSummary">等待战斗开始</span></div>
+          <div class="toolbar-controls">
+            <label class="switch"><input id="autoScroll" type="checkbox" checked><span></span>自动滚动</label>
+            <div class="speed-controls" aria-label="模拟速度">
+              <button type="button" data-speed="1" class="active">1×</button><button type="button" data-speed="2">2×</button><button type="button" data-speed="4">4×</button><button type="button" data-speed="16">16× 压测</button>
+            </div>
+            <button id="cleanupBtn" class="button secondary" type="button">立即压缩（可选）</button>
+            <button id="resetBtn" class="button secondary" type="button">重置</button>
+            <button id="startBtn" class="button primary" type="button">开始战斗</button>
+          </div>
+        </div>
+        <div class="log-head"><span>时间</span><span>来源</span><span>事件</span><span>目标</span><span>数值</span></div>
+        <div id="eventLog" class="event-log" aria-live="polite">
+          <div class="empty-log"><strong>尚无战斗事件</strong><span>点击“开始战斗”后，自动释放序列会实时写入这里。</span></div>
+        </div>
+      </section>
+
+      <section class="loadout-panel">
+        <div class="loadout-title"><div><h2>本次构筑</h2><span>武器决定技能限制与精通盘</span></div><strong id="compileStatus">构筑已编译</strong></div>
+        <div id="skillBar" class="skill-bar" aria-label="技能栏"></div>
+        <div class="support-area">
+          <span>斩击辅助卡</span>
+          <div id="supportCards"></div>
+          <p id="compiledSlash">最终斩击：572ms · 1.64×</p>
+        </div>
+      </section>
+      </div>
       <section class="inventory-panel" id="inventoryPanel" aria-label="背包最小界面">
         <header class="inventory-head">
           <div><p>INVENTORY V0</p><h2>冒险背包</h2><span>服务器资产实例 · 占用状态来自 WeaponLoadout</span></div>
@@ -228,40 +258,10 @@
         </div>
       </section>
 
-      <div class="lower-grid">
-      <section class="log-panel">
-        <div class="log-toolbar">
-          <div><h2>战斗日志</h2><span id="logSummary">等待战斗开始</span></div>
-          <div class="toolbar-controls">
-            <label class="switch"><input id="autoScroll" type="checkbox" checked><span></span>自动滚动</label>
-            <div class="speed-controls" aria-label="模拟速度">
-              <button type="button" data-speed="1" class="active">1×</button><button type="button" data-speed="2">2×</button><button type="button" data-speed="4">4×</button><button type="button" data-speed="16">16× 压测</button>
-            </div>
-            <button id="cleanupBtn" class="button secondary" type="button">立即压缩（可选）</button>
-            <button id="resetBtn" class="button secondary" type="button">重置</button>
-            <button id="startBtn" class="button primary" type="button">开始战斗</button>
-          </div>
-        </div>
-        <div class="log-head"><span>时间</span><span>来源</span><span>事件</span><span>目标</span><span>数值</span></div>
-        <div id="eventLog" class="event-log" aria-live="polite">
-          <div class="empty-log"><strong>尚无战斗事件</strong><span>点击“开始战斗”后，自动释放序列会实时写入这里。</span></div>
-        </div>
-      </section>
-
-      <section class="loadout-panel">
-        <div class="loadout-title"><div><h2>本次构筑</h2><span>武器决定技能限制与精通盘</span></div><strong id="compileStatus">构筑已编译</strong></div>
-        <div id="skillBar" class="skill-bar" aria-label="技能栏"></div>
-        <div class="support-area">
-          <span>斩击辅助卡</span>
-          <div id="supportCards"></div>
-          <p id="compiledSlash">最终斩击：572ms · 1.64×</p>
-        </div>
-      </section>
-      </div>
     </main>
   </div>
-  <script type="module" src="./battle-ro.js?v=runtime-retention-1"></script>
+  <script type="module" src="./battle-ro.js?v=compiled-runtime-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
-  <script type="module" src="./loadout-lab.js?v=slot-bound-supports-1"></script>
+  <script type="module" src="./loadout-lab.js?v=compiled-runtime-1"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 import { projectTwoHandedSwordA1Legacy } from "../../packages/build-compiler/src/twoHandedSwordA1Adapter.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=slot-bound-supports-1";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=compiled-runtime-1";
 import { createTwoHandedSwordA1InventoryLabOwnership } from "../../packages/game-config/two-handed-sword-a1-domain.js";
 import { createLocalSaveV0, restoreLocalSaveV0, serializeLocalSaveV0 } from "../../packages/save-core/src/local-save-v0.js";
 import { createAuthoritativeLoadoutService } from "../../packages/server-core/src/authoritative-loadout-service.js";

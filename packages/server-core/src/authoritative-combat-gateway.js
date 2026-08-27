@@ -1,5 +1,5 @@
 import { COMBAT_COMMAND, CombatGatewayError, validateCombatCommand } from "./combat-request-schema.js";
-import { createMinimalAuthoritativeSimulator } from "./minimal-authoritative-simulator.js";
+import { createCompiledAuthoritativeSimulator } from "./compiled-authoritative-simulator.js";
 import { stableHash } from "../../build-compiler/src/compileActionBuild.js";
 import { assertValidWeaponLoadoutOwnership } from "../../game-domain/src/model.js";
 import { assertCompileInputMatchesOwnership } from "./compile-input-ownership.js";
@@ -60,6 +60,7 @@ function publicSession(session, simulation = null) {
       settled: session.runtimeState.settled,
     },
     events: structuredClone(simulation?.events ?? []),
+    runtimeEvents: structuredClone(simulation?.runtimeEvents ?? []),
     settlement: simulation?.settlement ? structuredClone(simulation.settlement) : null,
   });
 }
@@ -85,7 +86,7 @@ export function createAuthoritativeCombatGateway(options) {
   requireMethod(commandStore, "executeOnce", "commandStore");
   requireMethod(settlementStore, "claimCombatRewards", "settlementStore");
 
-  const simulator = options.simulator ?? createMinimalAuthoritativeSimulator();
+  const simulator = options.simulator ?? createCompiledAuthoritativeSimulator();
   requireMethod(simulator, "createInitialState", "simulator");
   requireMethod(simulator, "advance", "simulator");
   const compileInputAssembler = options.compileInputAssembler ?? (({ authority }) => authority.compileInput);
