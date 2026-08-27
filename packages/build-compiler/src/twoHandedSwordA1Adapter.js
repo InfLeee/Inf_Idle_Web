@@ -189,8 +189,8 @@ function createSupportBindings(config, assignments, equippedEntries) {
       assignment.skillEntryId ? entry.entryId === assignment.skillEntryId : entry.definitionId === assignment.skillId
     ));
     if (!target) throw new Error("Support target is not equipped: " + (assignment.skillEntryId ?? assignment.skillId));
-    const compatibility = splitCompatibilityTags(definition.compatibility?.requireAll).skill;
-    const excluded = splitCompatibilityTags(definition.compatibility?.excludeAny).skill;
+    const compatibility = splitCompatibilityTags(definition.compatibility?.requireAll);
+    const excluded = splitCompatibilityTags(definition.compatibility?.excludeAny);
     const operations = [];
     const identityChanges = createIdentityTagChanges(definition);
     if (identityChanges.length) {
@@ -227,7 +227,12 @@ function createSupportBindings(config, assignments, equippedEntries) {
       script: createSupportScriptDefinition({
         version: SUPPORT_SCRIPT_VERSION,
         id: "support-script:" + definition.id,
-        compatibility: { skillAll: compatibility, skillNone: excluded },
+        compatibility: {
+          skillAll: compatibility.skill,
+          skillNone: excluded.skill,
+          actionAll: compatibility.action,
+          actionNone: excluded.action,
+        },
         conflictGroup: definition.conflictGroup ?? null,
         operations,
       }),
