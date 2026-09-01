@@ -376,6 +376,7 @@ function hashPayload(snapshot) {
     compiledSkills: snapshot.compiledSkills,
     resourceDefinitions: snapshot.resourceDefinitions,
     autoPolicy: snapshot.autoPolicy,
+    characterStats: snapshot.characterStats,
     buildMetadata: snapshot.buildMetadata,
     supportStatuses: snapshot.supportStatuses,
   };
@@ -493,8 +494,14 @@ export function compileActionBuild(input, options = {}) {
     compiledSkills,
     resourceDefinitions: resourceDefinitions.map((item) => deepFreeze(clone(item))),
     autoPolicy: clone(input.autoPolicy ?? {}),
+    characterStats: input.characterStats ? clone(input.characterStats) : null,
     buildMetadata: clone(input.buildMetadata ?? {}),
     supportStatuses: [...skillReplacementResult.supportStatuses, ...supportScriptResult.supportStatuses]
+      .filter((item) => item.sourceKind === undefined || item.sourceKind === "support_card")
+      .sort((left, right) => left.insertionOrder - right.insertionOrder)
+      .map((item) => deepFreeze(clone(item))),
+    masteryEffectStatuses: skillReplacementResult.supportStatuses
+      .filter((item) => item.sourceKind === "mastery_node")
       .sort((left, right) => left.insertionOrder - right.insertionOrder)
       .map((item) => deepFreeze(clone(item))),
     diagnostics: diagnostics.map((item) => deepFreeze(clone(item))),

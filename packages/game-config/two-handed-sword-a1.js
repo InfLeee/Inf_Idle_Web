@@ -1,7 +1,7 @@
 // 双手剑 A1「敏捷骑士」首版运行骨架。
 // 所有带 prototypeValue 的数值仅用于验证链路，不代表正式平衡值。
 export const twoHandedSwordA1Config = {
-  configVersion: "two-handed-sword-a1-prototype-0.5",
+  configVersion: "two-handed-sword-a1-m3-0.1",
   weapon: {
     id: "two_handed_sword",
     name: "双手剑",
@@ -16,6 +16,7 @@ export const twoHandedSwordA1Config = {
     pointBudget: 30,
     supportSlotsPerSkill: 3,
     defaultMasteryNodeIds: ["start", "family_choice", "a_bd_choice"],
+    defaultMasteryNodeChoices: { family_choice: "a_family", a_bd_choice: "a1_swift" },
     defaultSkillSlots: [
       "two_handed_sword_slash",
       "bash",
@@ -150,7 +151,13 @@ export const twoHandedSwordA1Config = {
       activationResource: 100,
       applyState: {
         stateId: "aura_blade_overclock",
+        statusKind: "buff",
         durationMs: 8000,
+        maxStacks: 1,
+        stackPolicy: "replace",
+        durationPolicy: "refresh",
+        sourceScope: "global",
+        persistsThroughDeath: false,
         backgroundActionIntervalMultiplier: 0.7,
       },
       prototypeValue: true,
@@ -168,6 +175,18 @@ export const twoHandedSwordA1Config = {
     },
   ],
   replacementSkills: [
+    {
+      id: "mastery_tempest_execution",
+      name: "疾风终结",
+      tags: ["DAMAGE", "PHYSICAL", "MELEE", "AREA", "MULTI_HIT", "ACTIVE_CAST", "HIT", "RESOURCE_GENERATE", "TWO_HANDED_SWORD"],
+      stats: { damageMultiplier: 1.75, hitCount: 5 },
+      actionTimeMs: 1120,
+      minActionTimeMs: 240,
+      cooldownMs: 6000,
+      resourceCost: 0,
+      resourceGain: 40,
+      prototypeValue: true,
+    },
     {
       id: "proximity_explosion_skill",
       name: "近身爆裂",
@@ -195,7 +214,7 @@ export const twoHandedSwordA1Config = {
       name: "重刃增幅",
       compatibility: { requireAll: ["DAMAGE", "MELEE", "ACTIVE_CAST"] },
       effects: [
-        { path: "stats.damageMultiplier", operator: "multiply", value: 1.3 },
+        { path: "stats.damageMultiplier", operator: "multiply", value: 1.3, levelGrowthPerLevel: 0.04 },
         { path: "actionTimeMs", operator: "multiply", value: 1.1 },
       ],
       displayText: "伤害提高30%，动作时间延长10%。",
@@ -231,7 +250,7 @@ export const twoHandedSwordA1Config = {
       id: "flame_resonance_support",
       name: "烈焰共鸣",
       compatibility: { requireAll: ["DAMAGE", "FIRE", "MELEE", "ACTIVE_CAST"] },
-      effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.25 }],
+      effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.25, levelGrowthPerLevel: 0.04 }],
       displayText: "仅支持火焰近战技能，伤害提高25%。",
       prototypeValue: true,
     },
@@ -259,23 +278,92 @@ export const twoHandedSwordA1Config = {
       id: "projectile_amplification_support",
       name: "子弹增幅",
       compatibility: { requireAll: ["DAMAGE", "PROJECTILE", "ACTIVE_CAST"] },
-      effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.2 }],
+      effects: [{ path: "stats.damageMultiplier", operator: "multiply", value: 1.2, levelGrowthPerLevel: 0.04 }],
       displayText: "仅支持子弹技能，伤害提高20%；技能主体被替换且失去PROJECTILE后立即失效。",
       prototypeValue: true,
     },
   ],
+  masteryScopeRequirements: {
+    ALL: {},
+    A: { allOf: ["family_choice"], choices: { family_choice: "a_family" } },
+    A1: { allOf: ["family_choice", "a_bd_choice"], choices: { family_choice: "a_family", a_bd_choice: "a1_swift" } },
+    A2: { allOf: ["family_choice", "a_bd_choice"], choices: { family_choice: "a_family", a_bd_choice: "a2_reserved" } },
+    B: { allOf: ["family_choice"], choices: { family_choice: "b_family_reserved" } },
+  },
   masteryNodes: [
-    { id: "start", name: "双手剑精通", cost: 1, prerequisites: [], scope: "ALL" },
-    { id: "family_choice", name: "近战道路", cost: 2, prerequisites: ["start"], scope: "A" },
-    { id: "a_bd_choice", name: "敏捷骑士", cost: 2, prerequisites: ["family_choice"], scope: "A1" },
-    { id: "a1_speed", name: "迅斩", cost: 3, prerequisites: ["a_bd_choice"], scope: "A1", effects: [{ skillId: "two_handed_sword_slash", path: "actionTimeMs", operator: "multiply", value: 0.9 }] },
-    { id: "a1_bash_chain", name: "连击训练", cost: 3, prerequisites: ["a1_speed"], scope: "A1", effects: [{ skillId: "two_handed_sword_slash", path: "stats.damageMultiplier", operator: "multiply", value: 1.1 }] },
-    { id: "a_war_shared", name: "战意共鸣", cost: 3, prerequisites: ["a1_bash_chain"], scope: "A" },
-    { id: "a1_swift_storm", name: "迅捷风暴", cost: 4, prerequisites: ["a_war_shared"], scope: "A1", effects: [{ skillId: "two_handed_sword_slash", path: "actionTimeMs", operator: "multiply", value: 0.85 }] },
-    { id: "a1_aura_eff", name: "灵气增幅", cost: 4, prerequisites: ["a1_swift_storm"], scope: "A1", effects: [{ skillId: "two_handed_sword_aura_blade", path: "stats.damageMultiplier", operator: "multiply", value: 1.2 }] },
-    { id: "weapon_link", name: "武技连携", cost: 3, prerequisites: ["a1_aura_eff"], scope: "ALL" },
-    { id: "a1_capstone", name: "极限灵气", cost: 3, prerequisites: ["weapon_link"], scope: "A1", effects: [{ skillId: "two_handed_sword_slash", path: "minActionTimeMs", operator: "set", value: 142 }] },
-    { id: "a1_ext", name: "高速斩击扩充", cost: 2, prerequisites: ["a1_capstone"], scope: "A1", effects: [{ skillId: "two_handed_sword_slash", path: "stats.damageMultiplier", operator: "multiply", value: 1.15 }] },
+    {
+      id: "start", name: "双手剑精通", cost: 1, maxRank: 1, tier: "起点", minSpent: 0,
+      category: "origin", purchaseScope: "ALL", effectScope: "ALL", prerequisites: { allOf: [], anyOf: [] },
+      position: { x: 70, y: 250 }, description: "激活双手剑精通盘，解锁斗气资源，并提供体质 +2。",
+      effects: [{ kind: "resource_unlock", resourceId: "a_fighting_spirit" }, { kind: "primary_stat_bonus", statId: "con", amount: 2 }],
+    },
+    {
+      id: "family_choice", name: "战斗道路", cost: 2, maxRank: 1, tier: "T1", minSpent: 1,
+      category: "choice", purchaseScope: "ALL", effectScope: "ALL", prerequisites: { allOf: ["start"], anyOf: [] },
+      position: { x: 190, y: 250 }, description: "决定后续构筑家族；切换会清理不再合法的后续节点。",
+      choiceOptions: [
+        { id: "a_family", name: "A系·近战道路", description: "开放敏捷骑士与后续近战循环。" },
+        { id: "b_family_reserved", name: "B系·魔剑道路（预留）", description: "保留魔剑分支入口，本轮尚未铺设后续节点。" },
+      ],
+    },
+    {
+      id: "a_bd_choice", name: "敏捷流派", cost: 2, maxRank: 1, tier: "T2", minSpent: 3,
+      category: "choice", purchaseScope: "A", effectScope: "A", prerequisites: { allOf: ["family_choice"], anyOf: [] },
+      position: { x: 310, y: 250 }, description: "选择 A 系具体构筑方向。",
+      choiceOptions: [
+        { id: "a1_swift", name: "A1·敏捷骑士", description: "开放高频斩击、战意与灵气剑强化。" },
+        { id: "a2_reserved", name: "A2·力量骑士（预留）", description: "保留黄道与灌注路线入口。" },
+      ],
+    },
+    {
+      id: "a1_speed", name: "迅斩", cost: 3, maxRank: 1, tier: "T3", minSpent: 5,
+      category: "attribute", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a_bd_choice"], anyOf: [] },
+      position: { x: 440, y: 145 }, description: "敏捷 +3；斩击动作时间缩短10%，与后续速度层乘算叠加。",
+      effects: [{ kind: "modifier", skillId: "two_handed_sword_slash", operations: [{ path: "timing.castTimeMs", operator: "multiply", value: 0.9 }] }, { kind: "primary_stat_bonus", statId: "agi", amount: 3 }],
+    },
+    {
+      id: "a1_bash_chain", name: "连击训练", cost: 3, maxRank: 1, tier: "T3", minSpent: 5,
+      category: "attribute", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a_bd_choice"], anyOf: [] },
+      position: { x: 440, y: 355 }, description: "物理攻击基础值 +8；斩击最终伤害提高10%。",
+      effects: [{ kind: "modifier", skillId: "two_handed_sword_slash", operations: [{ path: "effects.damage.params.multiplier", operator: "multiply", value: 1.1 }] }, { kind: "derived_stat_bonus", statId: "physicalAttack", bucket: "equipmentBase", amount: 8 }],
+    },
+    {
+      id: "a_war_shared", name: "战意共鸣", cost: 3, maxRank: 1, tier: "T4", minSpent: 8,
+      category: "mechanic", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: [], anyOf: ["a1_speed", "a1_bash_chain"] },
+      position: { x: 570, y: 250 }, description: "任一前置训练即可抵达，用于验证 anyOf 路径。",
+    },
+    {
+      id: "a1_swift_storm", name: "迅捷风暴", cost: 4, maxRank: 1, tier: "T5", minSpent: 14,
+      category: "attribute", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a_war_shared"], anyOf: [] },
+      position: { x: 700, y: 145 }, description: "攻击速度评级额外 +20；再次缩短斩击动作时间15%。",
+      effects: [{ kind: "modifier", skillId: "two_handed_sword_slash", operations: [{ path: "timing.castTimeMs", operator: "multiply", value: 0.85 }] }, { kind: "derived_stat_bonus", statId: "attackSpeedRating", bucket: "extra", amount: 20 }],
+    },
+    {
+      id: "a1_aura_eff", name: "灵气增幅", cost: 4, maxRank: 1, tier: "T5", minSpent: 14,
+      category: "mechanic", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a_war_shared"], anyOf: [] },
+      position: { x: 700, y: 355 }, description: "最大生命基础部分提高10%；灵气剑伤害提高20%。",
+      effects: [{ kind: "modifier", skillId: "two_handed_sword_aura_blade", operations: [{ path: "effects.damage.params.multiplier", operator: "multiply", value: 1.2 }] }, { kind: "derived_stat_bonus", statId: "maxHp", bucket: "basePercent", amount: 0.1 }],
+    },
+    {
+      id: "weapon_link", name: "武技连携", cost: 3, maxRank: 1, tier: "T7", minSpent: 22,
+      category: "mechanic", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a1_swift_storm", "a1_aura_eff"], anyOf: [] },
+      position: { x: 830, y: 250 }, description: "预留事件监听、武器技能家族与冷却返还接口。",
+    },
+    {
+      id: "a1_capstone", name: "极限灵气", cost: 3, maxRank: 1, tier: "T9", minSpent: 25,
+      category: "capstone", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["weapon_link"], anyOf: [] },
+      position: { x: 950, y: 250 }, description: "将斩击动作时间下限设为142ms，最终阶段仍执行下限保护。",
+      effects: [{ kind: "modifier", skillId: "two_handed_sword_slash", phase: "finalize", operations: [{ path: "timing.minimumCastTimeMs", operator: "set", value: 142 }] }],
+    },
+    {
+      id: "a1_ext", name: "疾风终结", cost: 2, maxRank: 1, tier: "T10", minSpent: 28,
+      category: "capstone", purchaseScope: "A1", effectScope: "A1", prerequisites: { allOf: ["a1_capstone"], anyOf: [] },
+      position: { x: 1070, y: 250 }, description: "斩击伤害提高15%，并将风暴斩击完整替换为范围多段技能。",
+      effects: [
+        { kind: "modifier", skillId: "two_handed_sword_slash", operations: [{ path: "effects.damage.params.multiplier", operator: "multiply", value: 1.15 }] },
+        { kind: "skill_replacement", skillId: "storm_slash", replacementSkillDefinitionId: "mastery_tempest_execution", compatibility: { skillAll: ["DAMAGE", "MELEE"] }, addSkillTags: [], removeSkillTags: [] },
+      ],
+    },
   ],
   recommendedRoute: [
     "start",

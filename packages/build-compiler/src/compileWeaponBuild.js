@@ -1,3 +1,4 @@
+import { validateMasteryAllocation } from "../../mastery-core/src/index.js";
 import { compileActionBuild } from "./compileActionBuild.js";
 import {
   createTwoHandedSwordA1ActionInput,
@@ -8,27 +9,9 @@ function indexById(items) {
   return new Map(items.map((item) => [item.id, item]));
 }
 
-export function validateMasterySelection(config, selectedNodeIds) {
-  const nodes = indexById(config.masteryNodes);
-  const selected = new Set(selectedNodeIds);
-  let spent = 0;
-
-  for (const nodeId of selectedNodeIds) {
-    const node = nodes.get(nodeId);
-    if (!node) throw new Error(`Unknown mastery node: ${nodeId}`);
-    for (const prerequisite of node.prerequisites ?? []) {
-      if (!selected.has(prerequisite)) throw new Error(`Mastery prerequisite missing: ${nodeId} requires ${prerequisite}`);
-    }
-    spent += node.cost;
-  }
-
-  if (spent > config.build.pointBudget) {
-    throw new Error(`Mastery budget exceeded: ${spent}/${config.build.pointBudget}`);
-  }
-
-  return { spent, budget: config.build.pointBudget };
+export function validateMasterySelection(config, selectedNodeIdsOrAllocation) {
+  return validateMasteryAllocation(config, selectedNodeIdsOrAllocation);
 }
-
 export function compileWeaponBuild(config, selection = {}) {
   if (selection.weaponId && selection.weaponId !== config.weapon.id) {
     throw new Error(`Weapon mismatch: expected ${config.weapon.id}, received ${selection.weaponId}`);
@@ -50,10 +33,15 @@ export function compileWeaponBuild(config, selection = {}) {
   }
 
   const selectedNodeIds = selection.masteryNodeIds ?? config.build.defaultMasteryNodeIds ?? config.recommendedRoute;
-  const masteryBudget = validateMasterySelection(config, selectedNodeIds);
+  const masteryAllocation = selection.masteryAllocation ?? {
+    nodeRanks: Object.fromEntries(selectedNodeIds.map((nodeId) => [nodeId, 1])),
+    nodeChoices: selection.masteryNodeChoices ?? config.build.defaultMasteryNodeChoices ?? {},
+  };
+  const masteryBudget = validateMasterySelection(config, masteryAllocation);
   const normalizedSelection = {
     skillSlots: [...skillIds],
-    masteryNodeIds: [...selectedNodeIds],
+    masteryNodeIds: [...Object.keys(masteryBudget.nodeRanks)],
+    masteryNodeChoices: { ...masteryBudget.nodeChoices },
     supportAssignments: structuredClone(selection.supportAssignments ?? []),
   };
   const actionInput = createTwoHandedSwordA1ActionInput(config, normalizedSelection, masteryBudget);

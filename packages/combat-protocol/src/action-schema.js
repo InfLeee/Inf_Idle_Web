@@ -19,6 +19,29 @@ export const EFFECT_KIND = Object.freeze({
   APPLY_STATE: "apply_state",
 });
 
+export const STATUS_KIND = Object.freeze({
+  BUFF: "buff",
+  DEBUFF: "debuff",
+  NEUTRAL: "neutral",
+});
+
+export const STATUS_STACK_POLICY = Object.freeze({
+  REPLACE: "replace",
+  ADD: "add",
+});
+
+export const STATUS_DURATION_POLICY = Object.freeze({
+  REFRESH: "refresh",
+  EXTEND: "extend",
+  KEEP_LONGER: "keep_longer",
+  IGNORE: "ignore",
+});
+
+export const STATUS_SOURCE_SCOPE = Object.freeze({
+  GLOBAL: "global",
+  SOURCE: "source",
+});
+
 export const MODIFIER_SOURCE_KIND = Object.freeze({
   SUPPORT_CARD: "support_card",
   MASTERY_NODE: "mastery_node",
@@ -239,6 +262,22 @@ export function createEffectDefinition(input) {
     assertId(params.stateId, "EffectDefinition.params.stateId");
     if (params.durationMs !== undefined && params.durationMs !== null) {
       assertFiniteNumber(params.durationMs, "EffectDefinition.params.durationMs", 0);
+    }
+    assertEnum(params.statusKind ?? STATUS_KIND.NEUTRAL, STATUS_KIND, "EffectDefinition.params.statusKind");
+    assertEnum(params.stackPolicy ?? STATUS_STACK_POLICY.REPLACE, STATUS_STACK_POLICY, "EffectDefinition.params.stackPolicy");
+    assertEnum(params.durationPolicy ?? STATUS_DURATION_POLICY.REFRESH, STATUS_DURATION_POLICY, "EffectDefinition.params.durationPolicy");
+    assertEnum(params.sourceScope ?? STATUS_SOURCE_SCOPE.GLOBAL, STATUS_SOURCE_SCOPE, "EffectDefinition.params.sourceScope");
+    const stackCount = params.stackCount ?? 1;
+    const maxStacks = params.maxStacks ?? 1;
+    if (!Number.isInteger(stackCount) || stackCount < 1 || stackCount > 999) {
+      throw new RangeError("EffectDefinition.params.stackCount must be an integer between 1 and 999");
+    }
+    if (!Number.isInteger(maxStacks) || maxStacks < 1 || maxStacks > 999) {
+      throw new RangeError("EffectDefinition.params.maxStacks must be an integer between 1 and 999");
+    }
+    if (stackCount > maxStacks) throw new RangeError("EffectDefinition.params.stackCount cannot exceed maxStacks");
+    if (params.persistsThroughDeath !== undefined && typeof params.persistsThroughDeath !== "boolean") {
+      throw new TypeError("EffectDefinition.params.persistsThroughDeath must be a boolean");
     }
   }
   return deepFreeze({ id: input.id, kind: input.kind, params: clone(params) });

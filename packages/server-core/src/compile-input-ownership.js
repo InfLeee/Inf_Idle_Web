@@ -95,6 +95,12 @@ export function validateCompileInputOwnership(compileInput, ownershipInput) {
   }
 
   for (const binding of compileInput.skillReplacementBindings ?? []) {
+    if (binding.sourceKind === MODIFIER_SOURCE_KIND.MASTERY_NODE) {
+      if (!Object.hasOwn(loadout.masteryAllocation.nodeRanks, binding.sourceDefinitionId)) {
+        issues.push(issue("UNALLOCATED_MASTERY_REPLACEMENT", "skillReplacementBindings." + binding.replacement.id, binding.sourceDefinitionId));
+      }
+      continue;
+    }
     if (compiledSupportIds.has(binding.sourceInstanceId)) {
       issues.push(issue("COMPILED_SUPPORT_INSTANCE_REUSED", "skillReplacementBindings." + binding.replacement.id, String(binding.sourceInstanceId)));
     }

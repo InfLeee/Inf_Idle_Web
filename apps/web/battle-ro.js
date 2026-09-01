@@ -2,12 +2,21 @@ import {
   currentLoadoutSnapshot,
   loadoutAuthority,
   subscribeLoadoutSnapshot,
-} from "./loadout-authority.js?v=build-sync-3";
+} from "./loadout-authority.js?v=mastery-stats-2";
 import {
   advanceCompiledCombat,
+  advanceEncounterWorld,
+  configureEncounterWorld,
   createCompiledCombatState,
+  createEncounterWorldState,
+  defeatEncounterMonster,
+  encounterFrequencyCapacity,
+  encounterIntervalMs,
+  encounterKillRatePerSecond,
+  encounterLivingCapacity,
+  restartEncounterWorld,
   TARGET_SELECTOR_KIND,
-} from "../../packages/combat-runtime/src/index.js?v=build-sync-3";
+} from "../../packages/combat-runtime/src/index.js?v=m2a-encounter-4";
 import {
   RUNTIME_RETENTION,
   clearTransientNodes,
@@ -17,7 +26,10 @@ import {
   mountTransientNode,
   transientRetentionStats,
   trimOldestChildren,
-} from "./runtime-retention.js";
+} from "./runtime-retention.js?v=performance-1";
+import { createSeededRng } from "../../packages/combat-protocol/src/settlement.js";
+import { DAMAGE_TYPES, settleDirectDamage } from "../../packages/combat-numerics/src/index.js";
+import { createM3MonsterTemplate } from "../../packages/game-config/m3-monster-templates.js";
 
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
@@ -33,11 +45,18 @@ const SUPPORT_STATUS_TEXT = Object.freeze({
 });
 const COMBAT_START_MS = 4_000;
 const COMBAT_CYCLE_MS = 60_000;
+const BUILD_HOT_SWAP_GCD_MS = 500;
 const RADAR_RADIUS_M = 30;
 const MELEE_RANGE_M = 3.4;
 const REVIVE_DELAY_MS = 5_000;
 const DEMO_CONTROL_EVENTS = Object.freeze([{ atMs: 12_300, kind: "stun" }]);
-const MAX_MONSTERS = 4;
+const ENCOUNTER_DEFAULTS = Object.freeze({
+  radarRadiusM: RADAR_RADIUS_M, stopDistanceM: MELEE_RANGE_M, baseEncounterIntervalMs: 3_000,
+  minimumEncounterIntervalMs: 750, movementSpeedMultiplier: 1, monsterApproachSpeedMps: 9.5,
+  encounterCapacityWindowMs: 18_000, killRateWindowMs: 12_000, baseLivingCapacity: 3,
+  minimumLivingCapacity: 6, maximumLivingCapacity: 24,
+  seed: 20260828, initialEncounterDelayMs: 1_150,
+});
 const MONSTER_TYPES = [
   { id: "slime", name: "绿波波", hp: 800, heal: 80, sprite: "./assets/monster-slime.png" },
   { id: "boar", name: "野猪战士", hp: 1_100, heal: 0, sprite: "./assets/monster-boar.png" },
@@ -59,13 +78,13 @@ let combatRuntimeState;
 let authoritySnapshot = loadoutAuthority.snapshot();
 let simulation;
 let combatTemplate = [];
+let combatTimelineOffsetMs = COMBAT_START_MS;
 let nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
 let monsters = [];
-let pendingSpawns = [];
-let nextMonsterId = 1;
-let spawnSerial = 0;
+let encounterState = createEncounterWorldState(ENCOUNTER_DEFAULTS);
 let killCount = 0;
 let speed = 1;
+globalThis.__INF_IDLE_BATTLE_SPEED__ = speed;
 let running = false;
 let simTime = 0;
 let lastFrame = 0;
@@ -73,19 +92,28 @@ let eventIndex = 0;
 let visibleLogCount = 0;
 let spirit = 0;
 let overclock = false;
+let overclockStacks = 0;
+let overclockExpiresAt = null;
 const damageAccumulator = createDamageAccumulator();
 let lastUiRenderAt = 0;
+let lastRadarRenderAt = 0;
+let lastRosterRenderAt = -Infinity;
 let lastCleanupAt = 0;
 let removedTimelineEvents = 0;
 let cleanupCount = 0;
 let slashCount = 0;
 let auraCount = 0;
 let playerHp = 100;
+let playerMaxHp = 100;
+let criticalCount = 0;
+let damageRng = createSeededRng(ENCOUNTER_DEFAULTS.seed ^ 0x4d334430);
 let playerState = "alive";
 let reviveAt = 0;
 let frameLoop;
 let autoStartTimer = null;
 let cleanupFeedbackTimer = null;
+let pausedByVisibility = false;
+let pausedByUser = false;
 
 function compile(snapshot = loadoutAuthority.snapshot()) {
   authoritySnapshot = snapshot;
@@ -107,6 +135,7 @@ function compile(snapshot = loadoutAuthority.snapshot()) {
   });
   combatRuntimeState = combat.state;
   combatTemplate = combat.events;
+  combatTimelineOffsetMs = COMBAT_START_MS;
   nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
   simulation = {
     log: [
@@ -167,30 +196,33 @@ function reset() {
   if (cleanupFeedbackTimer !== null) clearTimeout(cleanupFeedbackTimer);
   cleanupFeedbackTimer = null;
   running = false;
+  pausedByUser = false;
   simTime = 0;
   lastFrame = 0;
   eventIndex = 0;
   visibleLogCount = 0;
   monsters = [];
-  pendingSpawns = compiledBuild ? [
-    { at: 1_150, typeIndex: 0, angle: -108 },
-    { at: 1_650, typeIndex: 1, angle: -20 },
-    { at: 2_200, typeIndex: 2, angle: 62 },
-    { at: 2_750, typeIndex: 3, angle: 152 },
-  ] : [];
-  nextMonsterId = 1;
-  spawnSerial = 4;
-  killCount = 0;
+  encounterState = createEncounterWorldState({
+    ...encounterState.config,
+    initialEncounterDelayMs: ENCOUNTER_DEFAULTS.initialEncounterDelayMs,
+  });  killCount = 0;
   spirit = 0;
   overclock = false;
+  overclockStacks = 0;
+  overclockExpiresAt = null;
   damageAccumulator.reset();
   lastUiRenderAt = 0;
+  lastRadarRenderAt = 0;
+  lastRosterRenderAt = -Infinity;
   lastCleanupAt = 0;
   removedTimelineEvents = 0;
   cleanupCount = 0;
   slashCount = 0;
   auraCount = 0;
-  playerHp = 100;
+  playerMaxHp = compiledBuild?.characterStats?.derived?.final?.maxHp ?? 100;
+  playerHp = playerMaxHp;
+  criticalCount = 0;
+  damageRng = createSeededRng(ENCOUNTER_DEFAULTS.seed ^ 0x4d334430);
   playerState = "alive";
   reviveAt = 0;
   if (compiledBuild) {
@@ -205,6 +237,7 @@ function reset() {
     combatTemplate = segment.events;
   }
   nextCombatCycleAt = COMBAT_START_MS + COMBAT_CYCLE_MS;
+  combatTimelineOffsetMs = COMBAT_START_MS;
   simulation.log = compiledBuild ? [
     { at: 0, type: "radar", label: "开始扫描", detail: "搜索草原 30m 战斗视域", value: "扫描中" },
     ...combatTemplate.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })),
@@ -226,42 +259,49 @@ function reset() {
   updateReadout();
 }
 
-function spawnMonster(request) {
-  const type = MONSTER_TYPES[request.typeIndex % MONSTER_TYPES.length];
-  const cycle = Math.floor(spawnSerial / MONSTER_TYPES.length);
-  const maxHp = type.hp + cycle * 90;
+function spawnMonster(worldMonster) {
+  const type = MONSTER_TYPES[worldMonster.encounterSerial % MONSTER_TYPES.length];
+  const tier = worldMonster.encounterSerial > 0 && worldMonster.encounterSerial % 12 === 0 ? "elite" : "normal";
+  const numeric = createM3MonsterTemplate({ tier, level: globalThis.__INF_IDLE_MAP_MONSTER_LEVEL__ ?? 10 });
+  // M4B loot presentation test: keep targets deliberately fragile so several
+  // rarity pillars can be inspected without waiting through a balance run.
+  const maxHp = Math.max(24, Math.round(numeric.maxHp * 0.24));
   const monster = {
-    id: nextMonsterId++, type, name: type.name, hp: maxHp, maxHp,
-    heal: type.heal, angle: request.angle, distance: RADAR_RADIUS_M,
-    state: "approaching", spawnAt: simTime, engageAt: simTime + 2_800,
-    nextHealAt: simTime + 5_200, nextAttackAt: simTime + 4_000 + (nextMonsterId % 4) * 250, deathAt: null,
+    id: worldMonster.id, type, name: tier === "elite" ? `精英·${type.name}` : type.name, hp: maxHp, maxHp,
+    numeric,
+    heal: type.heal, angle: worldMonster.angleDeg, distance: worldMonster.distanceM,
+    state: worldMonster.state, spawnAt: worldMonster.spawnedAtMs, engageAt: worldMonster.engageAtMs,
+    nextHealAt: simTime + 5_200, nextAttackAt: simTime + 4_000 + (worldMonster.id % 4) * 250, deathAt: null,
   };
   monsters.push(monster);
-  addLog({ at: simTime }, "多目标刷新", `${monster.name}从30米外圈接近`, `目标 ${monster.id}`, "30.0m", "system");
-  spawnRadarFloat(monster, "新出现", "heal");
+  addLog({ at: simTime }, "探索遇敌", `${monster.name}从30米外圈出现`, `目标 ${monster.id}`, `${worldMonster.distanceM.toFixed(1)}m`, "system");
+  spawnRadarFloat(monster, "发现目标", "heal");
 }
 
-function scheduleReplacement(deadMonster) {
-  const occupiedAngles = monsters.filter((monster) => monster.state !== "dead").map((monster) => monster.angle);
-  const candidateAngles = [-135, -70, -10, 48, 110, 165];
-  const angle = candidateAngles.find((candidate) => occupiedAngles.every((used) => Math.abs(candidate - used) > 35)) ?? ((deadMonster.angle + 137) % 360);
-  pendingSpawns.push({ at: simTime + 1_150, typeIndex: spawnSerial % MONSTER_TYPES.length, angle });
-  spawnSerial += 1;
+function processEncounterWorldEvent(event) {
+  if (event.type === "monster_spawned") {
+    spawnMonster(event.monster);
+  } else if (event.type === "monster_approach_completed") {
+    const monster = monsters.find((item) => item.id === event.monsterId);
+    if (monster) addLog(event, "进入近战范围", `${monster.name}完成自主接近`, monster.name, `${event.distanceM.toFixed(1)}m`, "system");
+  } else if (event.type === "encounter_generation_paused") {
+    addLog(event, "遇敌暂停", "雷达存活目标达到容量上限", "探索系统", `${encounterLivingCapacity(encounterState)} / ${encounterLivingCapacity(encounterState)}`, "system");
+  } else if (event.type === "encounter_generation_resumed") {
+    addLog(event, "恢复探索", "击杀释放雷达容量", "探索系统", `${encounterIntervalMs(encounterState) / 1000}s`, "system");
+  }
 }
 
 function updateWorld() {
-  const due = pendingSpawns.filter((request) => request.at <= simTime && monsters.filter((monster) => monster.state !== "dead").length < MAX_MONSTERS);
-  pendingSpawns = pendingSpawns.filter((request) => !due.includes(request));
-  due.forEach(spawnMonster);
+  const segment = advanceEncounterWorld({ state: encounterState, untilMs: simTime });
+  encounterState = segment.state;
+  segment.events.forEach(processEncounterWorldEvent);
+  const worldById = new Map(encounterState.monsters.map((monster) => [monster.id, monster]));
   monsters.forEach((monster) => {
-    if (monster.state === "approaching") {
-      const progress = Math.min(1, (simTime - monster.spawnAt) / (monster.engageAt - monster.spawnAt));
-      monster.distance = RADAR_RADIUS_M - progress * (RADAR_RADIUS_M - MELEE_RANGE_M);
-      if (progress >= 1) {
-        monster.state = "engaged";
-        monster.distance = MELEE_RANGE_M;
-        addLog({ at: simTime }, "进入攻击范围", `${monster.name}加入交战`, monster.name, `${MELEE_RANGE_M}m`, "system");
-      }
+    const worldMonster = worldById.get(monster.id);
+    if (monster.state !== "dead" && worldMonster) {
+      monster.state = worldMonster.state;
+      monster.distance = worldMonster.distanceM;
+      monster.angle = worldMonster.angleDeg;
     }
     if (monster.state === "engaged" && monster.heal > 0 && simTime >= monster.nextHealAt) {
       monster.nextHealAt += 2_800;
@@ -273,13 +313,12 @@ function updateWorld() {
       }
     }
     if (monster.state === "engaged" && playerState === "alive" && simTime >= monster.nextAttackAt) {
-      monster.nextAttackAt += 1_650 + (monster.id % 3) * 180;
-      damagePlayer(monster, 4 + (monster.id % 4));
+      monster.nextAttackAt += monster.numeric.attackIntervalMs;
+      damagePlayer(monster);
     }
   });
   monsters = monsters.filter((monster) => monster.state !== "dead" || simTime - monster.deathAt < 1_050);
 }
-
 function livingMonsters() {
   return monsters.filter((monster) => monster.state !== "dead");
 }
@@ -298,7 +337,7 @@ function monsterPosition(monster) {
   return { x: 50 + Math.cos(radians) * radius, y: 50 + Math.sin(radians) * radius };
 }
 
-function renderMonsters() {
+function renderMonsterPositions() {
   const target = primaryTarget();
   const activeIds = new Set(monsters.map((monster) => String(monster.id)));
   $("radarUnits").querySelectorAll(".radar-unit").forEach((node) => {
@@ -320,6 +359,12 @@ function renderMonsters() {
     node.classList.toggle("targeted", target?.id === monster.id);
     node.querySelector(".unit-hp i").style.width = `${monster.hp / monster.maxHp * 100}%`;
   });
+}
+
+function renderMonsterRoster() {
+  if (simTime - lastRosterRenderAt < RUNTIME_RETENTION.rosterRenderIntervalMs) return;
+  lastRosterRenderAt = simTime;
+  const target = primaryTarget();
   const roster = [...monsters].sort((a, b) => (a.state === "dead") - (b.state === "dead") || a.distance - b.distance);
   $("enemyRoster").innerHTML = roster.length ? roster.map((monster) => `<article class="roster-row ${monster.state === "dead" ? "dead" : ""} ${target?.id === monster.id ? "targeted" : ""}">
     <img src="${monster.type.sprite}" alt=""><div class="roster-info"><strong>${monster.name}</strong><small>HP ${Math.round(monster.hp).toLocaleString()} / ${monster.maxHp.toLocaleString()}</small><i><b style="width:${monster.hp / monster.maxHp * 100}%"></b></i></div><span class="roster-state">${monster.state === "dead" ? "已击败" : monster.state === "engaged" ? "交战中" : `${monster.distance.toFixed(1)}m`}</span>
@@ -345,21 +390,27 @@ function updateReadout() {
   const engaged = engagedMonsters();
   const reviveSeconds = Math.max(0, (reviveAt - simTime) / 1000);
   $("clock").textContent = clockLabel(simTime);
-  $("playerStatus").textContent = `HP ${Math.round(playerHp)}/100 · 斗气 ${Math.round(spirit)}/100`;
-  $("playerHpText").textContent = `${Math.round(playerHp)} / 100`;
-  $("playerHpBar").style.width = `${playerHp}%`;
+  $("encounterIntervalReadout").textContent = `${(encounterIntervalMs(encounterState) / 1000).toFixed(2)}s / 怪`;
+  $("encounterFrequencyCapacityReadout").textContent = `移速理论 ${encounterFrequencyCapacity(encounterState)} 怪`;
+  $("encounterCapacityReadout").textContent = `当前容量 ${encounterLivingCapacity(encounterState)} 怪`;
+  $("encounterKillRateReadout").textContent = `击杀频率 ${encounterKillRatePerSecond(encounterState).toFixed(2)} / 秒`;
+  $("playerStatus").textContent = `HP ${Math.round(playerHp)}/${Math.round(playerMaxHp)} · 斗气 ${Math.round(spirit)}/100`;
+  $("playerHpText").textContent = `${Math.round(playerHp)} / ${Math.round(playerMaxHp)}`;
+  $("playerHpBar").style.width = `${playerHp / playerMaxHp * 100}%`;
   $("playerLifeState").textContent = playerState === "dead" ? `${reviveSeconds.toFixed(1)}s 后复活` : "战斗中";
   $("playerLifeState").classList.toggle("dead", playerState === "dead");
   document.querySelector(".player-summary").classList.toggle("dead", playerState === "dead");
   document.querySelector(".radar-player").classList.toggle("dead", playerState === "dead");
-  $("aliveCount").textContent = `存活 ${living.length} / ${MAX_MONSTERS}`;
-  $("waveText").textContent = `第 ${Math.floor(killCount / MAX_MONSTERS) + 1} 波 · 击杀 ${killCount}`;
+  $("aliveCount").textContent = `存活 ${living.length} / ${encounterLivingCapacity(encounterState)}`;
+  $("waveText").textContent = `第 ${Math.floor(killCount / encounterLivingCapacity(encounterState)) + 1} 波 · 击杀 ${killCount}`;
   $("encounterPhase").textContent = playerState === "dead" ? `复活倒计时 ${reviveSeconds.toFixed(1)}s` : engaged.length ? `交战中 · ${engaged.length}目标` : living.length ? "目标接近" : "扫描中";
   $("spiritText").textContent = `${Math.round(spirit)} / 100`;
   $("spiritBar").style.width = `${spirit}%`;
   $("dpsMetric").textContent = Math.round(total / combatSeconds).toLocaleString();
   $("totalMetric").textContent = `总伤害 ${Math.round(total).toLocaleString()}`;
   $("hitMetric").textContent = damageStats.count;
+  $("critMetric").textContent = damageStats.count ? `${(criticalCount / damageStats.count * 100).toFixed(1)}%` : "0.0%";
+  $("critDetail").textContent = criticalCount;
   $("avgMetric").textContent = Math.round(average).toLocaleString();
   $("maxMetric").textContent = damageStats.count ? damageStats.maximum.toLocaleString() : "0";
   $("minMetric").textContent = damageStats.count ? damageStats.minimum.toLocaleString() : "0";
@@ -368,11 +419,14 @@ function updateReadout() {
   $("attemptMetric").textContent = damageStats.count;
   $("slashMetric").textContent = slashCount;
   $("auraMetric").textContent = auraCount;
-  $("auraState").textContent = overclock ? "超频生效中" : spirit >= 100 ? "高亮就绪" : "等待斗气满值";
-  $("auraChip").textContent = `灵气剑超频 · ${overclock ? "已激活" : "未激活"}`;
+  const overclockRemaining = overclockExpiresAt === null ? null : Math.max(0, overclockExpiresAt - simTime);
+  $("auraState").textContent = overclock
+    ? `Buff · ${overclockStacks}层${overclockRemaining === null ? " · 持续" : ` · ${(overclockRemaining / 1000).toFixed(1)}s`}`
+    : spirit >= 100 ? "高亮就绪" : "等待斗气满值";
+  $("auraChip").textContent = `灵气剑超频 · ${overclock ? `已激活 ${overclockStacks}层` : "未激活"}`;
   $("auraChip").classList.toggle("active", overclock);
   $("auraChip").classList.toggle("inactive", !overclock);
-  renderMonsters();
+  renderMonsterRoster();
   updateRuntimeHealth();
 }
 
@@ -394,6 +448,13 @@ function addLog(event, label, detail, target, value, kind = "hit") {
   if ($("autoScroll").checked) $("eventLog").scrollTop = $("eventLog").scrollHeight;
 }
 
+window.addEventListener("inf-idle:loot-collected", (event) => {
+  const item = event.detail?.item;
+  if (!item) return;
+  addLog({ at: simTime }, "自动拾取", `${item.name}汇聚到拾取者`, "冒险背包", `${item.itemLevel}级 · ${item.rarity}`, "system");
+  spawnFloat(`拾取 ${item.name}`, "state");
+});
+
 function spawnFloat(text, kind = "damage") {
   const node = document.createElement("span");
   node.className = `float-number ${kind}`;
@@ -408,7 +469,9 @@ function spawnRadarFloat(monster, text, kind = "damage") {
   node.className = `radar-float ${kind}`;
   node.textContent = text;
   node.style.left = `${position.x}%`;
-  node.style.top = `${position.y - 2}%`;
+  // The position is the unit center. Lift the number above the 36px avatar,
+  // rather than placing it above the name/HP block below the circle.
+  node.style.top = `calc(${position.y}% - 36px)`;
   mountTransientNode($("radarFloats"), node);
 }
 
@@ -428,8 +491,19 @@ function flashAttackRange() {
   setTimeout(() => $("attackRange").classList.remove("pulse"), 280);
 }
 
-function damagePlayer(monster, value) {
+function damagePlayer(monster) {
   if (playerState !== "alive") return;
+  const stats = compiledBuild?.characterStats;
+  const settlement = settleDirectDamage({
+    damageType: DAMAGE_TYPES.PHYSICAL,
+    attackPower: monster.numeric.attackDamage,
+    attackerLevel: monster.numeric.level,
+    defenderLevel: stats?.level ?? 1,
+    defense: stats?.derived?.final?.physicalDefense ?? 0,
+    critRoll: 1,
+    varianceRoll: damageRng.nextFloat(),
+  });
+  const value = settlement.finalDamage;
   playerHp = Math.max(0, playerHp - value);
   const event = { at: simTime };
   addLog(event, "怪物攻击", `${monster.name}命中玩家`, "双手剑持有者", value.toLocaleString(), "hit");
@@ -439,19 +513,42 @@ function damagePlayer(monster, value) {
     reviveAt = simTime + REVIVE_DELAY_MS;
     spirit = 0;
     overclock = false;
+    overclockStacks = 0;
+    overclockExpiresAt = null;
     addLog(event, "玩家死亡", "停止输出并进入复活倒计时", "自身", "5.0s", "state");
     spawnFloat("战败", "state");
   }
 }
 
+function healPlayer(amount, options = {}) {
+  if (!Number.isFinite(amount) || amount <= 0 || playerState !== "alive") return 0;
+  const healed = Math.min(amount, playerMaxHp - playerHp);
+  if (healed <= 0) return 0;
+  playerHp += healed;
+  const rounded = Math.round(healed);
+  addLog({ at: simTime }, options.label ?? "受到治疗", options.detail ?? "恢复生命", "双手剑持有者", `+${rounded}`, "state");
+  spawnFloat(`+${rounded}${options.suffix ? ` ${options.suffix}` : ""}`, "heal");
+  return healed;
+}
+
 function updatePlayerLife() {
   if (playerState !== "dead" || simTime < reviveAt) return;
   playerState = "alive";
-  playerHp = 100;
+  playerHp = 0;
   reviveAt = 0;
-  engagedMonsters().forEach((monster, index) => { monster.nextAttackAt = simTime + 900 + index * 180; });
-  addLog({ at: simTime }, "玩家复活", "生命恢复并重新接管挂机序列", "自身", "+100", "state");
-  spawnFloat("+100 复活", "heal");
+  const restarted = restartEncounterWorld({
+    state: encounterState,
+    atMs: simTime,
+    initialEncounterDelayMs: ENCOUNTER_DEFAULTS.initialEncounterDelayMs,
+    reason: "player_revived",
+  });
+  encounterState = restarted.state;
+  monsters = [];
+  $("radarUnits").replaceChildren();
+  clearTransientNodes($("radarFloats"));
+  const healed = healPlayer(playerMaxHp, { label: "复活治疗", detail: "恢复全部生命", suffix: "复活" });
+  addLog({ at: simTime }, "玩家复活", "生命恢复、清空雷达并重新扫描", "自身", `+${Math.round(healed)}`, "state");
+  addLog({ at: simTime }, "遭遇重置", `已清除 ${restarted.events[0].removedMonsterCount} 个残留目标`, "草原视域", `${ENCOUNTER_DEFAULTS.initialEncounterDelayMs / 1000}s 后刷新`, "system");
 }
 
 function extendCombatTimeline() {
@@ -464,8 +561,8 @@ function extendCombatTimeline() {
       controlEvents: DEMO_CONTROL_EVENTS,
     });
     combatRuntimeState = segment.state;
-    simulation.log.push(...segment.events.map((event) => ({ ...event, at: event.at + COMBAT_START_MS })));
-    nextCombatCycleAt = COMBAT_START_MS + combatRuntimeState.nowMs;
+    simulation.log.push(...segment.events.map((event) => ({ ...event, at: event.at + combatTimelineOffsetMs })));
+    nextCombatCycleAt = combatTimelineOffsetMs + combatRuntimeState.nowMs;
   }
 }
 
@@ -543,16 +640,47 @@ function defeatMonster(monster, event) {
   killCount += 1;
   addLog(event, "目标击杀", `${monster.name}生命归零`, monster.name, `第 ${killCount} 杀`, "system");
   spawnRadarFloat(monster, "击败！", "kill");
-  scheduleReplacement(monster);
+  const defeated = defeatEncounterMonster({ state: encounterState, monsterId: monster.id });
+  encounterState = defeated.state;
+  defeated.events.forEach(processEncounterWorldEvent);
+  const dropPosition = monsterPosition(monster);
+  window.dispatchEvent(new CustomEvent("inf-idle:authoritative-monster-defeated", { detail: {
+    monsterId: monster.id, monsterLevel: monster.numeric.level, monsterName: monster.name,
+    killCount, atMs: simTime, x: dropPosition.x, y: dropPosition.y,
+  } }));
 }
 
 function applyDamage(event, skillName, multiplier, hitCount, monster) {
   if (!monster || monster.state !== "engaged") return;
-  const value = Math.round(multiplier * Math.max(1, hitCount) * 100);
+  const stats = compiledBuild?.characterStats;
+  const derived = stats?.derived?.final ?? {};
+  const damageType = event.skillTags?.includes("TRUE") ? DAMAGE_TYPES.TRUE : event.skillTags?.includes("MAGIC") ? DAMAGE_TYPES.MAGIC : DAMAGE_TYPES.PHYSICAL;
+  const baseMultiplier = event.baseMultiplier ?? multiplier;
+  const compiledModifier = baseMultiplier === 0 ? 0 : multiplier / baseMultiplier;
+  const settlement = settleDirectDamage({
+    damageType,
+    attackPower: (damageType === DAMAGE_TYPES.MAGIC ? derived.magicAttack : derived.physicalAttack) ?? 10,
+    skillCoefficient: baseMultiplier * Math.max(1, hitCount),
+    skillLevel: event.skillLevel ?? 1,
+    skillLevelGrowth: event.skillLevelGrowth ?? 0.08,
+    moreDamage: compiledModifier === 1 ? [] : [compiledModifier - 1],
+    attackerLevel: stats?.level ?? 1,
+    defenderLevel: monster.numeric.level,
+    defense: damageType === DAMAGE_TYPES.MAGIC ? monster.numeric.magicDefense : monster.numeric.physicalDefense,
+    penetration: damageType === DAMAGE_TYPES.MAGIC ? derived.magicPenetration ?? 0 : derived.physicalPenetration ?? 0,
+    critRating: derived.critRating ?? 0,
+    critResistance: monster.numeric.critResistance,
+    critMultiplier: stats?.combatRates?.baseCritDamageMultiplier ?? 1.5,
+    critRoll: damageRng.nextFloat(),
+    varianceRoll: damageRng.nextFloat(),
+  });
+  const value = settlement.finalDamage;
+  if (settlement.critical) criticalCount += 1;
   damageAccumulator.record(value);
   monster.hp = Math.max(0, monster.hp - value);
-  addLog(event, `${skillName}命中`, hitCount > 1 ? `${hitCount}段伤害` : "最终Effect结算", monster.name, value.toLocaleString());
-  spawnRadarFloat(monster, `-${value.toLocaleString()}`);
+  const detail = `${hitCount > 1 ? `${hitCount}段` : "直接"} · 减伤 ${(settlement.rates.effectiveMitigationRate * 100).toFixed(1)}%${settlement.critical ? " · 暴击" : ""}`;
+  addLog(event, `${skillName}命中`, detail, monster.name, value.toLocaleString());
+  spawnRadarFloat(monster, `${settlement.critical ? "暴击 " : ""}-${value.toLocaleString()}`);
   flashMonster(monster.id);
   if (monster.hp <= 0) defeatMonster(monster, event);
 }
@@ -581,11 +709,33 @@ function processEvent(event) {
     if (event.delta !== 0) spawnFloat(`${event.delta > 0 ? "+" : ""}${event.delta} 斗气`, "resource");
   } else if (event.type === "state_applied") {
     overclock = event.stateId === "aura_blade_overclock" || overclock;
-    addLog(event, "状态获得", event.stateId, "自身", event.durationMs === null ? "持续" : `${event.durationMs / 1000}s`, "state");
+    if (event.stateId === "aura_blade_overclock") {
+      overclockStacks = event.stackCount ?? 1;
+      overclockExpiresAt = event.durationMs === null ? null : event.at + event.durationMs;
+    }
+    addLog(event, "状态获得", `${event.stateId} · ${event.statusKind ?? "neutral"}`, "自身", `${event.stackCount ?? 1}层 · ${event.durationMs === null ? "持续" : `${event.durationMs / 1000}s`}`, "state");
     spawnFloat(event.stateId, "state");
+  } else if (event.type === "state_refreshed") {
+    if (event.stateId === "aura_blade_overclock") {
+      overclock = true;
+      overclockStacks = event.stackCount ?? 1;
+      overclockExpiresAt = event.durationMs === null ? null : event.at + event.durationMs;
+    }
+    addLog(event, "状态刷新", `${event.stateId} · ${event.durationPolicy}`, "自身", `${event.previousStackCount}→${event.stackCount}层`, "state");
   } else if (event.type === "state_expired") {
-    if (event.stateId === "aura_blade_overclock") overclock = false;
-    addLog(event, "状态结束", event.stateId, "自身", "结束", "state");
+    if (event.stateId === "aura_blade_overclock") {
+      overclock = false;
+      overclockStacks = 0;
+      overclockExpiresAt = null;
+    }
+    addLog(event, "状态结束", event.stateId, "自身", event.reason ?? "duration_expired", "state");
+  } else if (event.type === "state_removed") {
+    if (event.stateId === "aura_blade_overclock") {
+      overclock = false;
+      overclockStacks = 0;
+      overclockExpiresAt = null;
+    }
+    addLog(event, "状态移除", event.stateId, "自身", event.reason, "state");
   } else if (event.type === "action_interrupted") {
     addLog(event, "释放被打断", event.controlKind, "自身", "失败", "state");
     spawnFloat("眩晕打断", "damage");
@@ -604,6 +754,10 @@ function frame(timestamp) {
   extendCombatTimeline();
   updatePlayerLife();
   updateWorld();
+  if (timestamp - lastRadarRenderAt >= RUNTIME_RETENTION.radarRenderIntervalMs) {
+    renderMonsterPositions();
+    lastRadarRenderAt = timestamp;
+  }
   while (eventIndex < simulation.log.length && simulation.log[eventIndex].at <= simTime) {
     processEvent(simulation.log[eventIndex]);
     eventIndex += 1;
@@ -643,14 +797,18 @@ $("startBtn").addEventListener("click", () => {
   if (!synchronizeCombatBuild()) return;
   if (running) {
     running = false;
+    pausedByUser = true;
+    pausedByVisibility = false;
     frameLoop.stop();
   } else {
     running = true;
+    pausedByUser = false;
     lastFrame = 0;
     frameLoop.start();
   }
   $("startBtn").textContent = running ? "暂停战斗" : "继续战斗";
   $("logSummary").textContent = running ? `${visibleLogCount} 条事件 · 实时滚动` : `${visibleLogCount} 条事件 · 已暂停`;
+  updateRuntimeHealth();
 });
 $("resetBtn").addEventListener("click", () => { reset(); startAutomatically(); });
 $("cleanupBtn").addEventListener("click", () => {
@@ -663,33 +821,107 @@ $("cleanupBtn").addEventListener("click", () => {
   }, 900);
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) runRuntimeCleanup();
+  if (document.hidden) {
+    pausedByVisibility = running;
+    frameLoop.stop();
+    runRuntimeCleanup();
+    return;
+  }
+  if (pausedByVisibility && running) {
+    lastFrame = 0;
+    frameLoop.start();
+  } else if (!running && !pausedByUser && compiledBuild) {
+    startAutomatically();
+  }
+  pausedByVisibility = false;
+});
+window.addEventListener("pageshow", () => {
+  if (!running && !pausedByUser && compiledBuild) startAutomatically();
 });
 document.querySelectorAll("[data-speed]").forEach((button) => button.addEventListener("click", () => {
   speed = Number(button.dataset.speed);
+  globalThis.__INF_IDLE_BATTLE_SPEED__ = speed;
+  window.dispatchEvent(new CustomEvent("inf-idle:battle-speed-changed", { detail: { speed } }));
   document.querySelectorAll("[data-speed]").forEach((item) => item.classList.toggle("active", item === button));
+}));
+
+document.querySelectorAll("[data-encounter-setting]").forEach((button) => button.addEventListener("click", () => {
+  const key = button.dataset.encounterSetting;
+  const settingValue = Number(button.dataset.encounterValue);
+  const changed = configureEncounterWorld({ state: encounterState, changes: { [key]: settingValue } });
+  encounterState = changed.state;
+  document.querySelectorAll(`[data-encounter-setting="${key}"]`).forEach((item) => item.classList.toggle("active", item === button));
+  const interval = encounterIntervalMs(encounterState);
+  $("encounterIntervalReadout").textContent = `${(interval / 1000).toFixed(2)}s / 怪`;
+  $("encounterAuthorityReadout").textContent = "中心 0,0 · 硬保护 64";
+  $("encounterFrequencyCapacityReadout").textContent = `移速理论 ${encounterFrequencyCapacity(encounterState)} 怪`;
+  $("encounterCapacityReadout").textContent = `当前容量 ${encounterLivingCapacity(encounterState)} 怪`;
+  $("encounterKillRateReadout").textContent = `击杀频率 ${encounterKillRatePerSecond(encounterState).toFixed(2)} / 秒`;
+  addLog({ at: simTime }, "遭遇参数变更", `${key}由服务器规则重新计算`, "探索系统", key === "movementSpeedMultiplier" ? `${Math.round(settingValue * 100)}%` : String(settingValue), "system");
+  updateReadout();
 }));
 
 function applyAuthoritativeSnapshot(snapshot) {
   const changed = snapshot.loadoutVersion !== authoritySnapshot.loadoutVersion ||
     (snapshot.compiledBuild?.buildHash ?? null) !== (compiledBuild?.buildHash ?? null);
   if (!changed) return;
-  const resume = running;
-  compile(snapshot);
+  const previousHash = compiledBuild?.buildHash ?? null;
+  const previousMaxHp = playerMaxHp;
+  const previousHpRatio = previousMaxHp > 0 ? playerHp / previousMaxHp : 1;
+  authoritySnapshot = snapshot;
+  compiledBuild = snapshot.compiledBuild;
+
+  // Drop only future actions from the old build. Encounter state, monsters,
+  // player life, battle clock and the running loop remain untouched.
+  simulation.log = simulation.log.slice(0, eventIndex);
+  if (compiledBuild) {
+    const initial = structuredClone(createCompiledCombatState(compiledBuild));
+    if (Object.hasOwn(initial.resources, "a_fighting_spirit")) initial.resources.a_fighting_spirit = spirit;
+    const segment = advanceCompiledCombat({
+      state: initial,
+      compiledBuild,
+      untilMs: COMBAT_CYCLE_MS,
+      controlEvents: DEMO_CONTROL_EVENTS,
+    });
+    combatRuntimeState = segment.state;
+    combatTemplate = segment.events;
+    combatTimelineOffsetMs = simTime + BUILD_HOT_SWAP_GCD_MS;
+    simulation.log.push(...segment.events.map((event) => ({ ...event, at: event.at + combatTimelineOffsetMs })));
+    simulation.log.sort((left, right) => left.at - right.at);
+    nextCombatCycleAt = combatTimelineOffsetMs + combatRuntimeState.nowMs;
+    playerMaxHp = compiledBuild.characterStats?.derived?.final?.maxHp ?? previousMaxHp;
+    if (playerState !== "dead") playerHp = Math.min(playerMaxHp, Math.max(1, playerMaxHp * previousHpRatio));
+  } else {
+    combatRuntimeState = null;
+    combatTemplate = [];
+    nextCombatCycleAt = Number.POSITIVE_INFINITY;
+  }
   renderBuild();
-  reset();
-  if (compiledBuild && resume) startAutomatically();
+  const detail = compiledBuild
+    ? `新构筑将在下一次 ${BUILD_HOT_SWAP_GCD_MS}ms 执行窗口生效`
+    : "武器或技能已卸下，保留当前遭遇并暂停玩家技能释放";
+  addLog({ at: simTime }, "构筑热更新", detail, "服务器快照", compiledBuild ? snapshot.compiledBuild.buildHash.slice(0, 8) : "无可用技能", "system");
+  $("logSummary").textContent = running
+    ? `战斗持续中 · Loadout v${snapshot.loadoutVersion} 已热更新`
+    : `Loadout v${snapshot.loadoutVersion} 已更新 · 战斗当前暂停`;
+  updateReadout();
 }
 
 window.addEventListener("authoritative-loadout-change", (event) => {
   applyAuthoritativeSnapshot(event.detail.snapshot);
+});window.addEventListener("mastery-combat-run", (event) => {
+  if (!synchronizeCombatBuild()) return;
+  reset();
+  if (!running) $("startBtn").click();
+  $("logSummary").textContent = `精通构筑已进入战斗 · ${event.detail.buildHash.slice(0, 8)} · Loadout v${event.detail.loadoutVersion}`;
 });
 function startAutomatically() {
   if (!compiledBuild) return;
+  if (document.hidden) return;
   if (autoStartTimer !== null) clearTimeout(autoStartTimer);
   autoStartTimer = setTimeout(() => {
     autoStartTimer = null;
-    if (!running && simTime === 0) $("startBtn").click();
+    if (!running && !pausedByUser && simTime === 0) $("startBtn").click();
   }, 420);
 }
 

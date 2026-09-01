@@ -1,8 +1,10 @@
 export const RUNTIME_RETENTION = Object.freeze({
-  maxLogRows: 240,
+  maxLogRows: 120,
   maxTransientNodes: 48,
   eventCompactionThreshold: 256,
-  uiRenderIntervalMs: 100,
+  radarRenderIntervalMs: 50,
+  uiRenderIntervalMs: 160,
+  rosterRenderIntervalMs: 500,
   cleanupIntervalMs: 5_000,
   transientFallbackTtlMs: 1_400,
 });

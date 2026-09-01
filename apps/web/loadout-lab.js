@@ -1,9 +1,10 @@
 import { compileActionBuild } from "../../packages/build-compiler/src/compileActionBuild.js";
-import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=build-sync-3";
+import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=mastery-stats-2";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
 import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=build-sync-3";
-import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority } from "./loadout-authority.js?v=build-sync-3";
+import { cascadeRefundMastery, masteryNodeState } from "../../packages/mastery-core/src/index.js?v=mastery-board-1";
+import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority, subscribeLoadoutSnapshot, verifyLocalSaveRoundTrip } from "./loadout-authority.js?v=mastery-stats-2";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({
@@ -27,12 +28,14 @@ const SKILL_IMAGES = {
 let snapshot = loadoutAuthority.snapshot();
 let selectedSocketIndex = 0;
 let requestSerial = 1;
-let acceptanceProof = { weapon: false, skill: false, support: false };
+let acceptanceProof = { weapon: false, skill: false, support: false, mastery: false, runtime: false, restore: false };
 const weaponStatesSeen = new Set();
 let acceptanceMessages = [];
 let inventoryFilter = "all";
 let inventoryQuery = "";
 let selectedInventoryInstanceId = null;
+let selectedMasteryNodeId = "start";
+let masteryZoom = 1;
 const lockedInventoryInstanceIds = Object.freeze(["weapon-instance-a1-demo"]);
 const INVENTORY_DRAG_TYPE = "application/x-inf-idle-item";
 
@@ -124,15 +127,44 @@ function toggleSupport(supportInstanceId) {
   }), "support");
 }
 
-function setMastery(nodeIds, label) {
-  execute(() => loadoutAuthority.setMasterySelection({
+function masteryChoicesFor(nodeIds) {
+  const selected = new Set(nodeIds);
+  return Object.fromEntries(Object.entries(config.build.defaultMasteryNodeChoices ?? {}).filter(([nodeId]) => selected.has(nodeId)));
+}
+
+function setMasteryAllocation(nodeRanks, nodeChoices, label) {
+  const ok = execute(() => loadoutAuthority.setMasterySelection({
     requestId: requestId("mastery"),
     expectedVersion: snapshot.loadoutVersion,
-    nodeIds,
+    nodeRanks,
+    nodeChoices,
   }));
-  if ($("loadoutCommandState").classList.contains("accepted")) {
-    $("loadoutCommandState").textContent = `服务器确认成功 · ${label}`;
+  if (ok) $("loadoutCommandState").textContent = `服务器确认成功 · ${label}`;
+  return ok;
+}
+
+function setMasteryRoute(nodeIds, label) {
+  return setMasteryAllocation(Object.fromEntries(nodeIds.map((nodeId) => [nodeId, 1])), masteryChoicesFor(nodeIds), label);
+}
+
+function changeMasteryChoice(nodeId, choiceId) {
+  const current = snapshot.ownershipInput.loadout.masteryAllocation;
+  let next = { nodeRanks: { ...current.nodeRanks, [nodeId]: current.nodeRanks[nodeId] ?? 1 }, nodeChoices: { ...current.nodeChoices, [nodeId]: choiceId } };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const selectedId of Object.keys(next.nodeRanks)) {
+      if (selectedId === nodeId) continue;
+      const state = masteryNodeState(config, next, selectedId);
+      if (state.reasons.some((reason) => reason.includes("前置") || reason.includes("分支") || reason.includes("投入"))) {
+        next = cascadeRefundMastery(config, next, selectedId);
+        changed = true;
+        break;
+      }
+    }
   }
+  selectedMasteryNodeId = nodeId;
+  setMasteryAllocation(next.nodeRanks, next.nodeChoices, `已切换 ${config.masteryNodes.find((node) => node.id === nodeId)?.name} 分支`);
 }
 
 function inventoryStatusLabel(entry) {
@@ -175,10 +207,23 @@ function renderInventoryDetail(entries) {
     return;
   }
   const occupied = entry.occupiedByWeaponInstanceId ?? "无";
-  $("inventoryDetail").innerHTML = `<small>${inventoryKindLabel(entry.kind).toUpperCase()} DETAIL</small><h3>${entry.name}</h3><p>${entry.locked ? "开发基准资产已锁定；" : "可用资产；"}${inventoryStatusLabel(entry)}。</p><dl>
+  const isEquippedWeapon = entry.kind === "weapon" && entry.occupancy === "equipped";
+  const weaponAction = entry.kind === "weapon"
+    ? `<button type="button" class="inventory-detail-action ${isEquippedWeapon ? "unequip" : "equip"}" data-weapon-detail-action="${isEquippedWeapon ? "unequip" : "equip"}" data-weapon-instance="${entry.instanceId}">${isEquippedWeapon ? "卸下这把武器" : "穿戴这把武器"}</button>`
+    : "";
+  $("inventoryDetail").innerHTML = `<small>${inventoryKindLabel(entry.kind).toUpperCase()} DETAIL</small><h3>${entry.name}</h3><p>${entry.locked ? "开发基准资产保留，不可销毁但允许正常穿脱；" : "可用资产；"}${inventoryStatusLabel(entry)}。</p><dl>
     <div><dt>实例 ID</dt><dd>${entry.instanceId}</dd></div><div><dt>定义 ID</dt><dd>${entry.definitionId}</dd></div>
     <div><dt>等级 / 品质</dt><dd>${entry.level ?? "—"} / ${entry.quality ?? "—"}</dd></div><div><dt>占用武器</dt><dd>${occupied}</dd></div>
-  </dl>`;
+  </dl>${weaponAction}`;
+  $("inventoryDetail").querySelector("[data-weapon-detail-action]")?.addEventListener("click", (event) => {
+    const action = event.currentTarget.dataset.weaponDetailAction;
+    const weaponInstanceId = event.currentTarget.dataset.weaponInstance;
+    if (action === "unequip") {
+      unequipCurrentWeapon();
+      return;
+    }
+    equipWeaponInstance(weaponInstanceId);
+  });
 }
 
 function weaponSlotPreview(weaponInstanceId, registry) {
@@ -203,7 +248,7 @@ function renderBackpack(registry) {
     const occupancyClass = entry.occupancy === "equipped" ? "equipped" : entry.occupancy === "available" ? "" : "occupied";
     const weaponPreview = entry.kind === "weapon" ? weaponSlotPreview(entry.instanceId, registry) : "";
     return `<button type="button" draggable="true" class="inventory-item ${entry.kind} ${occupancyClass} ${entry.locked ? "locked" : ""} ${selectedInventoryInstanceId === entry.instanceId ? "selected" : ""}" data-inventory-instance="${entry.instanceId}">
-      <span class="item-icon">${inventoryGlyph(entry.kind)}</span><div><strong>${entry.name}</strong><small>${entry.instanceId}</small><small>${inventoryKindLabel(entry.kind)} · ${inventoryStatusLabel(entry)}</small></div><em>${entry.locked ? "锁定 · " : ""}${inventoryStatusLabel(entry)}</em>${weaponPreview}
+      <span class="item-icon">${inventoryGlyph(entry.kind)}</span><div><strong>${entry.name}</strong><small>${entry.instanceId}</small><small>${inventoryKindLabel(entry.kind)} · ${inventoryStatusLabel(entry)}</small></div><em>${entry.locked ? "基准保留 · " : ""}${inventoryStatusLabel(entry)}</em>${weaponPreview}
     </button>`;
   }).join("") : '<div class="inventory-empty">没有符合当前分类与搜索条件的物品</div>';
   $("inventoryGrid").querySelectorAll("[data-inventory-instance]").forEach((node) => {
@@ -243,6 +288,19 @@ function equipWeaponInstance(weaponInstanceId) {
   execute(() => loadoutAuthority.equipWeapon({
     requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId,
   }));
+}
+
+function unequipCurrentWeapon() {
+  if (snapshot.characterBuild.equippedWeaponInstanceId === null) return false;
+  const ok = execute(() => loadoutAuthority.unequipWeapon({
+    requestId: requestId("unequip-weapon"), expectedVersion: snapshot.loadoutVersion,
+  }));
+  if (!ok) return false;
+  weaponStatesSeen.add("unequipped");
+  acceptanceProof.weapon = weaponStatesSeen.has("equipped") && weaponStatesSeen.has("unequipped");
+  acceptanceMessages.push("武器已卸下：服务器撤销编译快照并禁止战斗；武器上的技能卡和辅助卡保持绑定。");
+  renderAcceptance();
+  return true;
 }
 
 function equipSkillAt(skillInstanceId, socketIndex) {
@@ -359,13 +417,201 @@ function renderSupports(supportInstances, registry) {
     toggleSupport(button.dataset.supportInstance);
   }));
 }
+function masteryPrerequisites(node) {
+  return Array.isArray(node.prerequisites)
+    ? { allOf: node.prerequisites, anyOf: [] }
+    : { allOf: node.prerequisites?.allOf ?? [], anyOf: node.prerequisites?.anyOf ?? [] };
+}
+
+function masteryEffectLabel(effect) {
+  if (effect.kind === "resource_unlock") return `解锁资源：${config.resources.find((item) => item.id === effect.resourceId)?.name ?? effect.resourceId}`;
+  if (effect.kind === "skill_replacement") return `完整替换：${definitionName(snapshot.ownershipInput.registry, effect.skillId)} → ${definitionName(snapshot.ownershipInput.registry, effect.replacementSkillDefinitionId)}`;
+  if (effect.kind === "modifier") return effect.operations.map(modifierOperationLabel).join("，");
+  const statName = {
+    str: "力量", agi: "敏捷", vit: "体力", int: "智力", dex: "灵巧", luk: "幸运", con: "体质",
+    physicalAttack: "物理攻击", attackSpeedRating: "攻击速度评级", maxHp: "最大生命",
+  }[effect.statId] ?? effect.statId;
+  if (effect.kind === "primary_stat_bonus") return `${statName} ${effect.amount >= 0 ? "+" : ""}${effect.amount}`;
+  if (effect.kind === "derived_stat_bonus") {
+    const bucket = { equipmentBase: "基础值", basePercent: "基础百分比", extra: "额外值" }[effect.bucket] ?? effect.bucket;
+    const value = effect.bucket === "basePercent" ? `${effect.amount * 100}%` : effect.amount;
+    return `${statName} ${bucket} ${effect.amount >= 0 ? "+" : ""}${value}`;
+  }
+  return `已预留能力：${effect.kind}`;
+}
+
+function masteryNodeAttributeSummary(node, choice) {
+  const effects = [...(node.effects ?? []), ...(choice?.effects ?? [])]
+    .filter((effect) => ["primary_stat_bonus", "derived_stat_bonus"].includes(effect.kind));
+  return effects.map(masteryEffectLabel).join(" · ");
+}
+
+function renderMasteryDetail(node, allocation, state) {
+  const selected = new Set(Object.keys(allocation.nodeRanks));
+  const choiceId = allocation.nodeChoices[node.id];
+  const choice = node.choiceOptions?.find((item) => item.id === choiceId);
+  const prerequisites = masteryPrerequisites(node);
+  const conditionParts = [
+    prerequisites.allOf.length ? `全部前置：${prerequisites.allOf.map((id) => config.masteryNodes.find((item) => item.id === id)?.name).join(" + ")}` : "",
+    prerequisites.anyOf.length ? `任一前置：${prerequisites.anyOf.map((id) => config.masteryNodes.find((item) => item.id === id)?.name).join(" / ")}` : "",
+    node.minSpent ? `层级门槛：先投入 ${node.minSpent} 点` : "起始层级",
+  ].filter(Boolean);
+  $("masteryDetailMeta").textContent = `${node.tier} · ${node.cost} 点 · 购买域 ${node.purchaseScope ?? "ALL"} · 生效域 ${node.effectScope ?? "ALL"}`;
+  $("masteryDetailTitle").textContent = node.name;
+  $("masteryDetailCopy").textContent = `${node.description} ${conditionParts.join("；")}。${state.purchased ? "当前已购买。" : state.available ? "当前可购买。" : `当前锁定：${state.reasons.join("、")}`}`;
+  $("masteryChoiceOptions").innerHTML = (node.choiceOptions ?? []).map((option) => `<button type="button" data-mastery-choice="${option.id}" class="${choiceId === option.id ? "active" : ""}"><b>${option.name}</b><small>${option.description}</small></button>`).join("");
+  $("masteryChoiceOptions").querySelectorAll("[data-mastery-choice]").forEach((button) => button.addEventListener("click", () => changeMasteryChoice(node.id, button.dataset.masteryChoice)));
+
+  const nodeEffects = [...(node.effects ?? []), ...(choice?.effects ?? [])];
+  const diagnostics = snapshot.compiledBuild?.diagnostics.filter((item) => item.sourceKind === "mastery_node" && item.sourceDefinitionId === node.id) ?? [];
+  const resourceActive = nodeEffects.some((effect) => effect.kind === "resource_unlock") && selected.has(node.id);
+  const evidence = diagnostics.map((item) => `<span class="${item.status === "applied" ? "applied" : "inactive"}"><b>${item.status === "applied" ? "已应用" : item.status}</b>${item.type === "skill_replacement" ? `完整技能主体替换为 ${definitionName(snapshot.ownershipInput.registry, item.effectiveDefinitionId)}` : (item.operations ?? []).map(modifierOperationLabel).join("，")}</span>`);
+  if (resourceActive) evidence.unshift(`<span class="applied"><b>已应用</b>${masteryEffectLabel(nodeEffects.find((effect) => effect.kind === "resource_unlock"))}</span>`);
+  if (selected.has(node.id)) nodeEffects.filter((effect) => ["primary_stat_bonus", "derived_stat_bonus"].includes(effect.kind)).reverse().forEach((effect) => evidence.unshift(`<span class="applied"><b>已进入属性快照</b>${masteryEffectLabel(effect)}</span>`));
+  if (!evidence.length) evidence.push(...(nodeEffects.length ? nodeEffects.map((effect) => `<span class="${selected.has(node.id) ? "inactive" : "preview"}"><b>${selected.has(node.id) ? "尚无运行时记录" : "预览"}</b>${masteryEffectLabel(effect)}</span>`) : ["<span class=\"preview\"><b>结构节点</b>本节点用于分支、层级或事件接口，不直接改数值。</span>"]));
+  $("masteryEffectEvidence").innerHTML = evidence.join("");
+
+  const slash = snapshot.compiledBuild?.compiledSkills.find((entry) => entry.definitionId === "two_handed_sword_slash");
+  const slashAction = slash?.actions[0];
+  const finalDamage = slashAction?.effects.find((effect) => effect.kind === "direct_damage")?.params?.multiplier;
+  const baseSlash = config.skills.find((skill) => skill.id === "two_handed_sword_slash");
+  const appliedMastery = snapshot.compiledBuild?.diagnostics.filter((item) => item.sourceKind === "mastery_node" && item.status === "applied") ?? [];
+  const finalStats = snapshot.compiledBuild?.characterStats;
+  const masteryStatSources = finalStats?.provenance?.filter((item) => item.sourceKind === "mastery_node") ?? [];
+  $("masteryStackEvidence").innerHTML = slashAction
+    ? `<span><b>斩击动作时间</b>${baseSlash.actionTimeMs}ms → ${Math.round(slashAction.timing.castTimeMs)}ms</span><span><b>斩击伤害</b>${baseSlash.stats.damageMultiplier.toFixed(2)}× → ${finalDamage.toFixed(2)}×</span>${finalStats ? `<span><b>精通属性结果</b>体质 ${finalStats.primaryStats?.con?.total ?? 0} · 敏捷 ${finalStats.primaryStats?.agi?.total ?? 0} · 物攻 ${finalStats.derivedStats?.physicalAttack?.final ?? 0}</span>` : ""}<span><b>服务器叠加记录</b>${appliedMastery.length} 条技能效果 · ${masteryStatSources.length} 条属性效果</span>`
+    : "<span><b>等待构筑</b>穿戴包含斩击的武器后显示最终叠加结果。</span>";
+  $("masteryPicked").innerHTML = Object.keys(allocation.nodeRanks).map((nodeId) => {
+    const picked = config.masteryNodes.find((item) => item.id === nodeId);
+    const pickedChoice = allocation.nodeChoices[nodeId];
+    return `<span>${picked.name}${pickedChoice ? ` · ${picked.choiceOptions.find((item) => item.id === pickedChoice)?.name}` : ""}</span>`;
+  }).join("") || "<em>尚未投入精通点</em>";
+}
+
 function renderMastery() {
-  const selected = new Set(Object.keys(snapshot.ownershipInput.loadout.masteryAllocation.nodeRanks));
-  $("masteryTrack").innerHTML = config.masteryNodes.map((node) => `<span class="mastery-node ${selected.has(node.id) ? "active" : ""}">
-    <i>${selected.has(node.id) ? "✓" : node.cost}</i><b>${node.name}</b><small>${node.scope} · ${node.cost}点</small>
-  </span>`).join("");
-  const spent = config.masteryNodes.filter((node) => selected.has(node.id)).reduce((total, node) => total + node.cost, 0);
+  const allocation = snapshot.ownershipInput.loadout.masteryAllocation;
+  const selected = new Set(Object.keys(allocation.nodeRanks));
+  const nodeMap = new Map(config.masteryNodes.map((node) => [node.id, node]));
+  const spent = config.masteryNodes.reduce((total, node) => total + node.cost * (allocation.nodeRanks[node.id] ?? 0), 0);
   $("masterySpent").textContent = `${spent} / ${config.build.pointBudget} 点`;
+  $("masteryZoomLabel").textContent = `${Math.round(masteryZoom * 100)}%`;
+  $("masteryCanvas").style.transform = `scale(${masteryZoom})`;
+
+  $("masteryEdges").innerHTML = config.masteryNodes.flatMap((node) => {
+    const prerequisiteIds = [...masteryPrerequisites(node).allOf, ...masteryPrerequisites(node).anyOf];
+    return prerequisiteIds.map((sourceId) => {
+      const source = nodeMap.get(sourceId);
+      const active = selected.has(sourceId) && selected.has(node.id);
+      return `<path class="${active ? "active" : ""}" d="M ${source.position.x + 50} ${source.position.y + 29} C ${source.position.x + 80} ${source.position.y + 29}, ${node.position.x - 30} ${node.position.y + 29}, ${node.position.x} ${node.position.y + 29}" />`;
+    });
+  }).join("");
+  $("masteryTrack").innerHTML = config.masteryNodes.map((node) => {
+    const state = masteryNodeState(config, allocation, node.id);
+    const statusClass = state.purchased ? "purchased" : state.available ? "available" : "locked";
+    const choice = node.choiceOptions?.find((item) => item.id === allocation.nodeChoices[node.id]);
+    const attributeSummary = masteryNodeAttributeSummary(node, choice);
+    return `<button type="button" class="mastery-node ${statusClass} ${node.category ?? "attribute"} ${attributeSummary ? "has-attribute" : ""} ${selectedMasteryNodeId === node.id ? "focused" : ""}" style="left:${node.position.x}px;top:${node.position.y}px" data-mastery-node="${node.id}" title="${state.reasons.join("；") || node.description}"><i>${state.purchased ? "✓" : node.cost}</i><b>${node.name}</b><small>${choice?.name ?? `${node.tier} · ${node.cost}点`}</small>${attributeSummary ? `<em>${attributeSummary}</em>` : ""}</button>`;
+  }).join("");
+  $("masteryTrack").querySelectorAll("[data-mastery-node]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const node = nodeMap.get(button.dataset.masteryNode);
+      selectedMasteryNodeId = node.id;
+      const state = masteryNodeState(config, allocation, node.id);
+      if (!state.purchased && state.available) {
+        const nodeRanks = { ...allocation.nodeRanks, [node.id]: 1 };
+        const nodeChoices = { ...allocation.nodeChoices };
+        if (node.choiceOptions?.length) nodeChoices[node.id] = node.choiceOptions[0].id;
+        setMasteryAllocation(nodeRanks, nodeChoices, `已购买 ${node.name}`);
+      } else {
+        $("masteryStatus").textContent = state.purchased ? `${node.name} 已生效；右键可退点` : `${node.name}：${state.reasons.join("、")}`;
+        renderMastery();
+      }
+    });
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const nodeId = button.dataset.masteryNode;
+      if (!selected.has(nodeId)) return;
+      const next = cascadeRefundMastery(config, allocation, nodeId);
+      selectedMasteryNodeId = nodeId;
+      setMasteryAllocation(next.nodeRanks, next.nodeChoices, `已退还 ${nodeMap.get(nodeId).name} 并清理失效后续节点`);
+    });
+  });
+  const detailNode = nodeMap.get(selectedMasteryNodeId) ?? config.masteryNodes[0];
+  renderMasteryDetail(detailNode, allocation, masteryNodeState(config, allocation, detailNode.id));
+}
+
+function setMasteryZoom(nextZoom) {
+  masteryZoom = Math.max(0.65, Math.min(1.35, nextZoom));
+  renderMastery();
+}
+function masteryRuntimeMetrics(build) {
+  const runtime = simulateCompiledCombat(build, { durationMs: 10_000, resourceDefinitions: config.resources });
+  const damageEvents = runtime.events.filter((event) => event.type === "damage_intent");
+  return {
+    damageEvents: damageEvents.length,
+    damageUnits: damageEvents.reduce((total, event) => total + event.multiplier * (event.hitCount ?? 1), 0),
+    areaEvents: damageEvents.filter((event) => ["enemies_in_radius", "enemies_around_self"].includes(event.targeting?.kind)).length,
+  };
+}
+
+function baselineMasteryBuild() {
+  if (!snapshot.compiledBuild) return null;
+  const ownership = structuredClone(snapshot.ownershipInput);
+  ownership.loadout.masteryAllocation = {
+    boardDefinitionId: ownership.loadout.masteryAllocation.boardDefinitionId,
+    nodeRanks: Object.fromEntries(config.build.defaultMasteryNodeIds.map((nodeId) => [nodeId, 1])),
+    nodeChoices: { ...config.build.defaultMasteryNodeChoices },
+  };
+  return compileActionBuild(assembleTwoHandedSwordA1CompileInput(config, ownership, {
+    maxSupportsPerSkill: config.build.supportSlotsPerSkill,
+  }));
+}
+
+function renderMasteryCombatBridge() {
+  const equippedId = snapshot.characterBuild.equippedWeaponInstanceId;
+  const ready = snapshot.combatReady && snapshot.compiledBuild;
+  $("masteryCombatState").textContent = ready
+    ? `已贯通 · ${equippedId} · Loadout v${snapshot.loadoutVersion}`
+    : equippedId === null
+      ? "已阻断：角色没有穿戴武器，当前精通不会进入战斗构筑"
+      : "已阻断：当前武器没有携带技能卡";
+  $("masteryCombatState").className = ready ? "ready" : "blocked";
+  $("masteryEquipTestBtn").textContent = equippedId === "weapon-instance-a1-demo" ? "测试武器已装备" : "装上满技能测试武器";
+  $("masteryRunCombatBtn").disabled = false;
+  if (!ready) {
+    $("masteryRuntimeProof").innerHTML = "<span>服务器未生成 CompiledBuild，因此没有 Runtime 伤害事件；点击上方按钮可一键补齐链路。</span>";
+    return;
+  }
+  const current = masteryRuntimeMetrics(snapshot.compiledBuild);
+  const baseline = masteryRuntimeMetrics(baselineMasteryBuild());
+  const replacement = snapshot.compiledBuild.masteryEffectStatuses?.find((item) => item.status === "active");
+  $("masteryRuntimeProof").innerHTML = `<span><b>10秒Runtime伤害事件</b>基础 ${baseline.damageEvents} → 当前 ${current.damageEvents}</span><span><b>命中倍率总量</b>基础 ${baseline.damageUnits.toFixed(2)} → 当前 ${current.damageUnits.toFixed(2)}</span><span><b>范围伤害事件</b>基础 ${baseline.areaEvents} → 当前 ${current.areaEvents}</span><span><b>技能主体</b>${replacement ? `已由精通替换为 ${definitionName(snapshot.ownershipInput.registry, replacement.effectiveDefinitionId)}` : "当前没有精通技能替换"}</span><span><b>权威构筑</b>${snapshot.compiledBuild.buildHash.slice(0, 12)}</span>`;
+}
+
+function equipMasteryTestWeapon() {
+  const desiredAllocation = structuredClone(snapshot.ownershipInput.loadout.masteryAllocation);
+  if (snapshot.characterBuild.equippedWeaponInstanceId !== "weapon-instance-a1-demo") {
+    const equipped = execute(() => loadoutAuthority.equipWeapon({
+      requestId: requestId("mastery-test-weapon"),
+      expectedVersion: snapshot.loadoutVersion,
+      weaponInstanceId: "weapon-instance-a1-demo",
+    }), "weapon");
+    if (!equipped) return false;
+  }
+  const currentAllocation = snapshot.ownershipInput.loadout.masteryAllocation;
+  if (JSON.stringify(currentAllocation) !== JSON.stringify(desiredAllocation)) {
+    if (!setMasteryAllocation(desiredAllocation.nodeRanks, desiredAllocation.nodeChoices, "当前精通已同步到测试武器")) return false;
+  }
+  $("loadoutCommandState").textContent = "服务器确认成功 · 测试武器、技能与当前精通已编译";
+  return Boolean(snapshot.combatReady && snapshot.compiledBuild);
+}
+
+function runMasteryCombat() {
+  if (!equipMasteryTestWeapon()) return;
+  window.dispatchEvent(new CustomEvent("mastery-combat-run", {
+    detail: { loadoutVersion: snapshot.loadoutVersion, buildHash: snapshot.compiledBuild.buildHash },
+  }));
+  $("combatLogPanel").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderSnapshot(registry) {
@@ -413,6 +659,7 @@ function targetingLabel(entry) {
 function compileWithoutSupports() {
   if (!snapshot.characterBuild.equippedWeaponInstanceId || !snapshot.combatReady) return null;
   const ownership = structuredClone(snapshot.ownershipInput);
+  ownership.loadout.supportSlots = Array.from({ length: ownership.loadout.skillSockets.length }, () => []);
   ownership.loadout.supportConnections = {};
   ownership.loadout.supportInsertionOrder = {};
   return compileActionBuild(assembleTwoHandedSwordA1CompileInput(config, ownership, { maxSupportsPerSkill: config.build.supportSlotsPerSkill }));
@@ -432,9 +679,13 @@ function renderAcceptance() {
   setCheck("frontCheckWeapon", acceptanceProof.weapon);
   setCheck("frontCheckSkill", acceptanceProof.skill);
   setCheck("frontCheckSupport", acceptanceProof.support);
+  setCheck("frontCheckMastery", acceptanceProof.mastery);
+  setCheck("frontCheckRuntime", acceptanceProof.runtime);
+  setCheck("frontCheckRestore", acceptanceProof.restore);
   const passed = Object.values(acceptanceProof).filter(Boolean).length;
-  $("acceptanceState").textContent = `${passed} / 3 已通过`;
-  $("acceptanceState").className = passed === 3 ? "passed" : "";
+  const total = Object.keys(acceptanceProof).length;
+  $("acceptanceState").textContent = `${passed} / ${total} 已通过`;
+  $("acceptanceState").className = passed === total ? "passed" : "";
   $("acceptanceLog").innerHTML = acceptanceMessages.map((message) => `<li>${message}</li>`).join("");
 }
 
@@ -499,7 +750,7 @@ function renderBackend(registry) {
 function resetLab(announce = true) {
   snapshot = resetLoadoutAuthority();
   selectedSocketIndex = 0;
-  acceptanceProof = { weapon: false, skill: false, support: false };
+  acceptanceProof = { weapon: false, skill: false, support: false, mastery: false, runtime: false, restore: false };
   weaponStatesSeen.clear();
   weaponStatesSeen.add("unequipped");
   acceptanceMessages = announce ? ["已恢复基准构筑，可重新执行整套验收。"] : [];
@@ -511,13 +762,15 @@ function resetLab(announce = true) {
 
 function toggleWeapon() {
   const equipped = snapshot.characterBuild.equippedWeaponInstanceId !== null;
-  const ok = equipped
-    ? execute(() => loadoutAuthority.unequipWeapon({ requestId: requestId("unequip-weapon"), expectedVersion: snapshot.loadoutVersion }))
-    : execute(() => loadoutAuthority.equipWeapon({ requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId: snapshot.ownershipInput.loadout.weaponInstanceId }));
+  if (equipped) {
+    unequipCurrentWeapon();
+    return;
+  }
+  const ok = execute(() => loadoutAuthority.equipWeapon({ requestId: requestId("equip-weapon"), expectedVersion: snapshot.loadoutVersion, weaponInstanceId: snapshot.ownershipInput.loadout.weaponInstanceId }));
   if (!ok) return;
-  weaponStatesSeen.add(equipped ? "unequipped" : "equipped");
+  weaponStatesSeen.add("equipped");
   acceptanceProof.weapon = weaponStatesSeen.has("equipped") && weaponStatesSeen.has("unequipped");
-  acceptanceMessages.push(equipped ? "武器已卸下：服务器撤销编译快照并禁止战斗。" : "武器已重新穿戴：服务器依据武器实例恢复五孔构筑。");
+  acceptanceMessages.push("武器已重新穿戴：服务器依据武器实例恢复五孔构筑。");
   renderAcceptance();
 }
 
@@ -547,15 +800,34 @@ function runAcceptance() {
   const supportsReprojected = boundSupports.every((id) =>
     snapshot.ownershipInput.loadout.supportConnections[slashId]?.includes(id));
   const statuses = snapshot.compiledBuild.supportStatuses.filter((item) => boundSupports.includes(item.sourceInstanceId));
+  const masteryCommandAccepted = setMasteryRoute(config.recommendedRoute, "M1验收 · 完整30点精通");
+  const masteryBudget = snapshot.compiledBuild?.buildMetadata.masteryBudget;
+  const masteryReplacement = snapshot.compiledBuild?.masteryEffectStatuses?.find((item) =>
+    item.sourceDefinitionId === "a1_ext" && item.status === "active" && item.effectiveDefinitionId === "mastery_tempest_execution");
+  const runtime = snapshot.compiledBuild ? simulateCompiledCombat(snapshot.compiledBuild, { durationMs: 10_000 }) : { events: [] };
+  const runtimeReplacementEvent = runtime.events.some((event) => event.type === "damage_intent" &&
+    event.skillName === "疾风终结" && event.targeting?.kind === "enemies_in_radius");
+  let roundTrip = null;
+  try {
+    roundTrip = verifyLocalSaveRoundTrip(snapshot);
+  } catch (error) {
+    acceptanceMessages.push(`刷新恢复验证异常：${error.code ?? error.message}`);
+  }
   acceptanceProof = {
     weapon: weaponBlocked && weaponEquipped && bindingKeptWhileUnequipped && weaponRestored,
     skill: skillRemoved && supportsDormant && skillRestored,
     support: supportsReprojected && statuses.length === boundSupports.length && statuses.every((item) => item.status === "active"),
+    mastery: masteryCommandAccepted && masteryBudget?.spent === 30 && Boolean(masteryReplacement),
+    runtime: runtimeReplacementEvent,
+    restore: Boolean(roundTrip?.hashMatched) && roundTrip?.storedCompiledBuild === false,
   };
   acceptanceMessages.push(
     `武器链路：${acceptanceProof.weapon ? "通过" : "失败"}（默认空栏、穿戴、卸下保留整把武器构筑、重装恢复）。`,
     `技能链路：${acceptanceProof.skill ? "通过" : "失败"}（拔卡后辅助槽保留休眠，技能从编译列表移除）。`,
     `辅助链路：${acceptanceProof.support ? "通过" : "失败"}（重新插卡后 ${boundSupports.length} 张辅助卡按新技能主体重新判定）。`,
+    `精通链路：${acceptanceProof.mastery ? "通过" : "失败"}（30点预算与疾风终结完整替换由服务器确认）。`,
+    `战斗链路：${acceptanceProof.runtime ? "通过" : "失败"}（10秒Runtime检测到疾风终结范围伤害事件）。`,
+    `刷新恢复：${acceptanceProof.restore ? "通过" : "失败"}（存档 ${roundTrip?.serializedBytes ?? 0} bytes，不含最终构筑；重编译哈希 ${roundTrip?.rebuiltBuildHash?.slice(0, 12) ?? "无"}）。`,
   );
   render();
   const passed = Object.values(acceptanceProof).every(Boolean);
@@ -573,6 +845,7 @@ function render() {
   renderInventory(skillInstances, registry);
   renderSupports(supportInstances, registry);
   renderMastery();
+  renderMasteryCombatBridge();
   renderSnapshot(registry);
   renderAcceptance();
   renderBackend(registry);
@@ -589,14 +862,31 @@ $("inventorySearch").addEventListener("input", (event) => {
 });
 $("devItemKind").addEventListener("change", () => updateDevDefinitionOptions(snapshot.ownershipInput.registry));
 $("grantTestItemBtn").addEventListener("click", grantTestItem);
-$("masteryBaseBtn").addEventListener("click", () => setMastery(config.build.defaultMasteryNodeIds, "基础路线"));
-$("masteryFullBtn").addEventListener("click", () => setMastery(config.recommendedRoute, "完整 30 点路线"));
+$("masteryNavBtn").addEventListener("click", () => $("masteryWorkbench").scrollIntoView({ behavior: "smooth", block: "start" }));
+$("masteryBaseBtn").addEventListener("click", () => setMasteryRoute(config.build.defaultMasteryNodeIds, "基础路线"));
+$("masteryFullBtn").addEventListener("click", () => setMasteryRoute(config.recommendedRoute, "完整 30 点路线"));
+$("masteryResetBtn").addEventListener("click", () => setMasteryAllocation({}, {}, "已清空精通盘"));
+$("masteryEquipTestBtn").addEventListener("click", equipMasteryTestWeapon);
+$("masteryRunCombatBtn").addEventListener("click", runMasteryCombat);
+$("masteryZoomOut").addEventListener("click", () => setMasteryZoom(masteryZoom - 0.1));
+$("masteryZoomIn").addEventListener("click", () => setMasteryZoom(masteryZoom + 0.1));
+$("masteryFitBtn").addEventListener("click", () => setMasteryZoom(0.78));
+$("masteryViewport").addEventListener("wheel", (event) => {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  setMasteryZoom(masteryZoom + (event.deltaY < 0 ? 0.1 : -0.1));
+}, { passive: false });
 $("weaponToggleBtn").addEventListener("click", toggleWeapon);
 $("resetLoadoutBtn").addEventListener("click", () => resetLab(true));
 $("runAcceptanceBtn").addEventListener("click", runAcceptance);
 
 render();
 publishLoadoutSnapshot(snapshot);
+subscribeLoadoutSnapshot((next) => {
+  if (next.loadoutVersion === snapshot.loadoutVersion && next.ownershipInput.skillCardInstances.length === snapshot.ownershipInput.skillCardInstances.length) return;
+  snapshot = next;
+  render();
+});
 const initialSaveStatus = getLocalSaveStatus();
 if (initialSaveStatus.status === "restored") {
   $("loadoutCommandState").textContent = "\u5df2\u4ece\u672c\u5730\u5b58\u6863\u6062\u590d\u5e76\u91cd\u65b0\u7f16\u8bd1";

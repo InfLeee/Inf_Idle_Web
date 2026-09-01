@@ -1,8 +1,25 @@
 import {
   ACTION_TIMING_KIND,
   EFFECT_KIND,
+  STATUS_DURATION_POLICY,
+  STATUS_KIND,
+  STATUS_SOURCE_SCOPE,
+  STATUS_STACK_POLICY,
   TARGET_SELECTOR_KIND,
 } from "../../combat-protocol/src/action-schema.js";
+
+export {
+  ENCOUNTER_WORLD_SCHEMA_VERSION,
+  advanceEncounterWorld,
+  configureEncounterWorld,
+  createEncounterWorldState,
+  defeatEncounterMonster,
+  encounterFrequencyCapacity,
+  encounterIntervalMs,
+  encounterKillRatePerSecond,
+  encounterLivingCapacity,
+  restartEncounterWorld,
+} from "./encounter-world.js";
 
 export const COMBAT_RUNTIME_SCHEMA_VERSION = "compiled-combat-runtime-v1";
 
@@ -40,6 +57,87 @@ function actionInterval(action, state) {
   return Math.max(1, Math.round(interval));
 }
 
+function statusInstanceKey(params, source) {
+  const scope = params.sourceScope ?? STATUS_SOURCE_SCOPE.GLOBAL;
+  return scope === STATUS_SOURCE_SCOPE.SOURCE
+    ? `${params.stateId}::${source.skillEntryId ?? "unknown"}:${source.actionId ?? "unknown"}`
+    : params.stateId;
+}
+
+function statusExpiresAt(nowMs, durationMs) {
+  return durationMs === null ? null : nowMs + durationMs;
+}
+
+function refreshedExpiry(active, nowMs, durationMs, policy) {
+  if (policy === STATUS_DURATION_POLICY.IGNORE) return active.expiresAtMs;
+  if (durationMs === null) return null;
+  const incoming = nowMs + durationMs;
+  if (policy === STATUS_DURATION_POLICY.EXTEND) return (active.expiresAtMs ?? nowMs) + durationMs;
+  if (policy === STATUS_DURATION_POLICY.KEEP_LONGER) {
+    return active.expiresAtMs === null ? null : Math.max(active.expiresAtMs, incoming);
+  }
+  return incoming;
+}
+
+function applyStateEffect(state, events, params, source) {
+  const durationMs = params.durationMs ?? null;
+  const stateKey = statusInstanceKey(params, source);
+  const active = state.states[stateKey];
+  const maxStacks = params.maxStacks ?? 1;
+  const incomingStacks = params.stackCount ?? 1;
+  const stackPolicy = params.stackPolicy ?? STATUS_STACK_POLICY.REPLACE;
+  const durationPolicy = params.durationPolicy ?? STATUS_DURATION_POLICY.REFRESH;
+  const common = {
+    stateId: params.stateId,
+    stateKey,
+    statusKind: params.statusKind ?? STATUS_KIND.NEUTRAL,
+    maxStacks,
+    sourceScope: params.sourceScope ?? STATUS_SOURCE_SCOPE.GLOBAL,
+    sourceSkillEntryId: source.skillEntryId ?? null,
+    sourceActionId: source.actionId ?? null,
+    persistsThroughDeath: params.persistsThroughDeath ?? false,
+    backgroundActionIntervalMultiplier: params.backgroundActionIntervalMultiplier ?? 1,
+  };
+  if (!active) {
+    const stackCount = Math.min(maxStacks, incomingStacks);
+    const expiresAtMs = statusExpiresAt(state.nowMs, durationMs);
+    state.states[stateKey] = { ...common, stackCount, appliedAtMs: state.nowMs, refreshedAtMs: state.nowMs, expiresAtMs };
+    emit(state, events, {
+      type: "state_applied",
+      ...common,
+      stackCount,
+      durationMs,
+      expiresAtMs,
+    });
+    return;
+  }
+  const previousStackCount = active.stackCount;
+  const previousExpiresAtMs = active.expiresAtMs;
+  const stackCount = stackPolicy === STATUS_STACK_POLICY.ADD
+    ? Math.min(maxStacks, active.stackCount + incomingStacks)
+    : Math.min(maxStacks, incomingStacks);
+  const expiresAtMs = refreshedExpiry(active, state.nowMs, durationMs, durationPolicy);
+  state.states[stateKey] = {
+    ...active,
+    ...common,
+    stackCount,
+    refreshedAtMs: state.nowMs,
+    expiresAtMs,
+  };
+  emit(state, events, {
+    type: "state_refreshed",
+    ...common,
+    stackPolicy,
+    durationPolicy,
+    durationMs,
+    previousStackCount,
+    stackCount,
+    stackCapped: stackPolicy === STATUS_STACK_POLICY.ADD && active.stackCount + incomingStacks > maxStacks,
+    previousExpiresAtMs,
+    expiresAtMs,
+  });
+}
+
 function primaryAction(skill) {
   return skill.actions.find((action) => action.effects.length > 0) ?? null;
 }
@@ -63,8 +161,8 @@ function conditionMet(condition, state) {
   if (condition.type === "resource_at_least") {
     return (state.resources[condition.params.resourceId] ?? 0) >= condition.params.amount;
   }
-  if (condition.type === "state_active") return Boolean(state.states[condition.params.stateId]);
-  if (condition.type === "state_inactive") return !state.states[condition.params.stateId];
+  if (condition.type === "state_active") return Object.values(state.states).some((item) => item.stateId === condition.params.stateId);
+  if (condition.type === "state_inactive") return !Object.values(state.states).some((item) => item.stateId === condition.params.stateId);
   return false;
 }
 
@@ -90,7 +188,19 @@ function chooseForeground(compiledBuild, state) {
 }
 
 function emit(state, events, event) {
-  events.push({ index: state.eventIndex, at: state.nowMs, ...event });
+  const eventId = `runtime:${state.eventIndex}`;
+  events.push({
+    index: state.eventIndex,
+    at: state.nowMs,
+    eventId,
+    eventOrigin: "root",
+    rootEventId: eventId,
+    parentEventId: null,
+    triggerId: null,
+    derivationDepth: 0,
+    triggerChain: [],
+    ...event,
+  });
   state.eventIndex += 1;
 }
 
@@ -108,6 +218,7 @@ function payCosts(state, events, definitions, action, timing, source) {
 }
 
 function resolveAction(state, events, definitions, skill, action, source) {
+  let damageIntentCount = 0;
   emit(state, events, {
     type: "action_resolved",
     source,
@@ -120,15 +231,21 @@ function resolveAction(state, events, definitions, skill, action, source) {
   });
   for (const effect of action.effects) {
     if (effect.kind === EFFECT_KIND.DIRECT_DAMAGE) {
+      damageIntentCount += 1;
       emit(state, events, {
         type: "damage_intent",
         source,
         skillEntryId: skill.entryId,
         skillDefinitionId: skill.definitionId,
+        skillTags: [...(skill.skillTags ?? [])],
+        actionTags: [...(action.actionTags ?? [])],
         skillName: action.name,
         actionId: action.id,
         targeting: clone(action.targeting),
         multiplier: effect.params.multiplier,
+        baseMultiplier: effect.params.baseMultiplier ?? effect.params.multiplier,
+        skillLevel: effect.params.skillLevel ?? skill.runtime?.level ?? 1,
+        skillLevelGrowth: effect.params.skillLevelGrowth ?? 0.08,
         hitCount: effect.params.hitCount ?? 1,
         executeThreshold: effect.params.executeThreshold ?? null,
       });
@@ -138,29 +255,24 @@ function resolveAction(state, events, definitions, skill, action, source) {
         actionId: action.id,
       });
     } else if (effect.kind === EFFECT_KIND.APPLY_STATE) {
-      const durationMs = effect.params.durationMs ?? null;
-      state.states[effect.params.stateId] = {
-        stateId: effect.params.stateId,
-        appliedAtMs: state.nowMs,
-        expiresAtMs: durationMs === null ? null : state.nowMs + durationMs,
-        backgroundActionIntervalMultiplier: effect.params.backgroundActionIntervalMultiplier ?? 1,
-      };
-      emit(state, events, {
-        type: "state_applied",
-        stateId: effect.params.stateId,
-        durationMs,
-        skillEntryId: skill.entryId,
-        actionId: action.id,
-      });
+      applyStateEffect(state, events, effect.params, { skillEntryId: skill.entryId, actionId: action.id });
     }
   }
+  return damageIntentCount;
 }
 
 function expireStates(state, events) {
-  for (const [stateId, active] of Object.entries(state.states)) {
+  for (const [stateKey, active] of Object.entries(state.states)) {
     if (active.expiresAtMs === null || active.expiresAtMs > state.nowMs) continue;
-    delete state.states[stateId];
-    emit(state, events, { type: "state_expired", stateId });
+    delete state.states[stateKey];
+    emit(state, events, {
+      type: "state_expired",
+      stateId: active.stateId ?? stateKey,
+      stateKey,
+      statusKind: active.statusKind ?? STATUS_KIND.NEUTRAL,
+      stackCount: active.stackCount ?? 1,
+      reason: "duration_expired",
+    });
   }
 }
 
@@ -201,6 +313,36 @@ export function createCompiledCombatState(compiledBuild, options = {}) {
     activeAction: null,
     controlIndex: 0,
   });
+}
+
+// A loadout edit is a versioned build transition, not a new combat session.
+// Keep session-scoped resources and valid cooldown/status state, while the
+// currently casting/channeling action is cancelled at the authoritative swap.
+export function migrateCompiledCombatState(state, nextCompiledBuild, options = {}) {
+  if (!state || state.schemaVersion !== COMBAT_RUNTIME_SCHEMA_VERSION) throw new TypeError("compiled combat state is required");
+  const definitions = resourceDefinitions(options.resourceDefinitions ?? nextCompiledBuild?.resourceDefinitions);
+  const next = structuredClone(createCompiledCombatState(nextCompiledBuild, options));
+  const nextSkills = new Set(nextCompiledBuild.compiledSkills.map((skill) => skill.entryId));
+  const nextActions = new Set(nextCompiledBuild.compiledSkills.flatMap((skill) => skill.actions.map((action) => action.id)));
+
+  next.nowMs = state.nowMs;
+  next.eventIndex = state.eventIndex;
+  next.gcdReadyAtMs = Math.max(state.nowMs, state.gcdReadyAtMs ?? state.nowMs);
+  next.controlIndex = state.controlIndex ?? 0;
+  next.resources = Object.fromEntries(Object.entries(definitions).map(([resourceId, definition]) => [
+    resourceId,
+    clampResource(definition, Number.isFinite(state.resources?.[resourceId]) ? state.resources[resourceId] : definition.initial),
+  ]));
+  next.cooldownReadyAt = Object.fromEntries(Object.entries(state.cooldownReadyAt ?? {})
+    .filter(([actionId]) => nextActions.has(actionId)));
+  next.backgroundNextAt = Object.fromEntries(Object.entries(next.backgroundNextAt).map(([actionId, initialAt]) => [
+    actionId,
+    Math.max(state.nowMs, state.backgroundNextAt?.[actionId] ?? initialAt),
+  ]));
+  next.states = Object.fromEntries(Object.entries(state.states ?? {}).filter(([, active]) =>
+    active.sourceSkillEntryId === null || active.sourceSkillEntryId === undefined || nextSkills.has(active.sourceSkillEntryId)));
+  next.activeAction = null;
+  return deepFreeze(next);
 }
 
 export function advanceCompiledCombat(input) {
@@ -259,8 +401,9 @@ export function advanceCompiledCombat(input) {
       state.nowMs = Math.max(state.nowMs, backgroundDue.at);
       const entry = byAction.get(backgroundDue.actionId);
       if (!entry) throw new Error(`background action ${backgroundDue.actionId} is missing`);
-      resolveAction(state, events, definitions, entry.skill, entry.action, "background");
+      const damageIntentCount = resolveAction(state, events, definitions, entry.skill, entry.action, "background");
       state.backgroundNextAt[entry.action.id] = state.nowMs + actionInterval(entry.action, state);
+      if (input.stopAfterDamageIntent && damageIntentCount > 0) break;
       continue;
     }
 
@@ -275,15 +418,17 @@ export function advanceCompiledCombat(input) {
         }
         payCosts(state, events, definitions, entry.action, "per_tick", { skillEntryId: entry.skill.entryId, actionId: entry.action.id });
         emit(state, events, { type: "channel_tick", skillEntryId: entry.skill.entryId, skillDefinitionId: entry.skill.definitionId, actionId: entry.action.id });
-        resolveAction(state, events, definitions, entry.skill, entry.action, "channel_tick");
+        const damageIntentCount = resolveAction(state, events, definitions, entry.skill, entry.action, "channel_tick");
         const nextTickAtMs = state.nowMs + entry.action.timing.tickIntervalMs;
         if (state.activeAction.endAtMs !== null && nextTickAtMs > state.activeAction.endAtMs) {
           emit(state, events, { type: "channel_ended", skillEntryId: entry.skill.entryId, actionId: entry.action.id, reason: "duration_complete" });
           state.activeAction = null;
         } else state.activeAction.nextTickAtMs = nextTickAtMs;
+        if (input.stopAfterDamageIntent && damageIntentCount > 0) break;
       } else {
-        resolveAction(state, events, definitions, entry.skill, entry.action, "foreground");
+        const damageIntentCount = resolveAction(state, events, definitions, entry.skill, entry.action, "foreground");
         state.activeAction = null;
+        if (input.stopAfterDamageIntent && damageIntentCount > 0) break;
       }
       continue;
     }
@@ -306,8 +451,9 @@ export function advanceCompiledCombat(input) {
           reason: selected.weaponSkill ? "weapon_priority" : "slot_order",
         });
         if (action.timing.kind === ACTION_TIMING_KIND.INSTANT) {
-          resolveAction(state, events, definitions, selected.skill, action, "foreground");
+          const damageIntentCount = resolveAction(state, events, definitions, selected.skill, action, "foreground");
           state.nowMs += 1;
+          if (input.stopAfterDamageIntent && damageIntentCount > 0) break;
         } else if (action.timing.kind === ACTION_TIMING_KIND.CHANNEL) {
           state.activeAction = {
             kind: action.timing.kind,
@@ -360,4 +506,37 @@ export function simulateCompiledCombat(compiledBuild, options = {}) {
   });
 }
 
-export { ACTION_TIMING_KIND, EFFECT_KIND, TARGET_SELECTOR_KIND };
+export function removeCompiledCombatStates(input) {
+  const reason = input.reason ?? "dispelled";
+  if (!["dispelled", "death", "encounter_reset", "source_ended", "replaced"].includes(reason)) {
+    throw new Error(`unsupported state removal reason ${reason}`);
+  }
+  const state = clone(input.state);
+  if (!Number.isFinite(input.atMs) || input.atMs < state.nowMs) throw new RangeError("atMs must not move backwards");
+  state.nowMs = input.atMs;
+  const events = [];
+  for (const [stateKey, active] of Object.entries(state.states)) {
+    if (input.stateId && active.stateId !== input.stateId) continue;
+    if (reason === "death" && active.persistsThroughDeath) continue;
+    delete state.states[stateKey];
+    emit(state, events, {
+      type: "state_removed",
+      stateId: active.stateId,
+      stateKey,
+      statusKind: active.statusKind ?? STATUS_KIND.NEUTRAL,
+      stackCount: active.stackCount ?? 1,
+      reason,
+    });
+  }
+  return deepFreeze({ state, events });
+}
+
+export {
+  ACTION_TIMING_KIND,
+  EFFECT_KIND,
+  STATUS_DURATION_POLICY,
+  STATUS_KIND,
+  STATUS_SOURCE_SCOPE,
+  STATUS_STACK_POLICY,
+  TARGET_SELECTOR_KIND,
+};

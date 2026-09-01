@@ -2,6 +2,7 @@ import { validateMasterySelection } from "../../build-compiler/src/compileWeapon
 import { createTwoHandedSwordA1ActionInput } from "../../build-compiler/src/twoHandedSwordA1Adapter.js";
 import { assertValidWeaponLoadoutOwnership } from "../../game-domain/src/model.js";
 import { assertCompileInputMatchesOwnership } from "./compile-input-ownership.js";
+import { applyMasteryCharacterStats } from "./mastery-character-stats.js";
 
 function indexBy(items, key) {
   return new Map(items.map((item) => [item[key], item]));
@@ -26,13 +27,9 @@ export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, opt
   const weapon = assertConfigMatchesAuthority(config, ownershipInput);
   const skillInstances = indexBy(ownershipInput.skillCardInstances, "instanceId");
   const supportInstances = indexBy(ownershipInput.supportCardInstances, "instanceId");
-  const selectedMasteryNodeIds = config.masteryNodes
-    .map((node) => node.id)
-    .filter((nodeId) => Object.hasOwn(ownershipInput.loadout.masteryAllocation.nodeRanks, nodeId));
-  for (const rank of Object.values(ownershipInput.loadout.masteryAllocation.nodeRanks)) {
-    if (rank !== 1) throw new Error("A1 prototype mastery nodes support rank 1 only");
-  }
-  const masteryBudget = validateMasterySelection(config, selectedMasteryNodeIds);
+  const masteryBudget = validateMasterySelection(config, ownershipInput.loadout.masteryAllocation);
+  const selectedMasteryNodeIds = Object.keys(masteryBudget.nodeRanks);
+  const characterStats = applyMasteryCharacterStats(options.characterStatSnapshot ?? null, masteryBudget, config);
   const activeResourceDefinitionIds = Object.values(ownershipInput.registry.resources ?? {})
     .filter((resource) => selectedMasteryNodeIds.includes(resource.unlockMasteryNodeDefinitionId))
     .map((resource) => resource.id);
@@ -44,6 +41,8 @@ export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, opt
       definitionId: instance.definitionId,
       sourceInstanceId: instance.instanceId,
       socketIndex,
+      level: instance.level,
+      quality: instance.quality,
     };
   });
   const weaponSkillEntries = weapon.rolledWeaponSkillDefinitionIds.map((definitionId) => ({
@@ -61,6 +60,8 @@ export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, opt
         skillId: skillInstance.definitionId,
         skillEntryId: skillInstance.instanceId,
         insertionOrder: ownershipInput.loadout.supportInsertionOrder[supportInstanceId],
+        supportLevel: supportInstance.level,
+        supportQuality: supportInstance.quality,
       };
     }),
   );
@@ -70,6 +71,7 @@ export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, opt
     weaponSkillEntries,
     supportAssignments,
     masteryNodeIds: selectedMasteryNodeIds,
+    characterStats,
     buildMetadata: {
       weaponInstanceId: weapon.instanceId,
       activeResourceDefinitionIds,

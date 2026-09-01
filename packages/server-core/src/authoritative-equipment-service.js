@@ -1,0 +1,128 @@
+import { stableHash } from "../../build-compiler/src/compileActionBuild.js";
+import { EQUIPMENT_SLOTS, ITEM_CATEGORY, ITEM_RARITIES, ITEM_RARITY, RARITY_META, aggregateEquipmentBonuses, generateEquipmentDrop, generateMonsterLoot } from "../../itemization-core/src/index.js";
+
+export class EquipmentCommandError extends Error { constructor(code, message) { super(message); this.name = "EquipmentCommandError"; this.code = code; } }
+
+export function createAuthoritativeEquipmentService(options = {}) {
+  let version = options.initialVersion ?? 1;
+  let items = structuredClone(options.items ?? []);
+  let skillCardStacks = structuredClone(options.skillCardStacks ?? []);
+  let pendingDrops = structuredClone(options.pendingDrops ?? []);
+  let acquisitionSerial = options.acquisitionSerial ?? items.length;
+  let lootRollSerial = options.lootRollSerial ?? 0;
+  let gold = options.gold ?? 0;
+  let slots = { ...Object.fromEntries(EQUIPMENT_SLOTS.map((slot) => [slot, null])), ...(options.slots ?? {}) };
+  const results = new Map();
+  const maximumEquipmentItems = options.maximumEquipmentItems ?? options.maximumItems ?? 600;
+  const maximumSkillStacks = options.maximumSkillStacks ?? 100;
+  const maximumSkillQuantityPerStack = options.maximumSkillQuantityPerStack ?? 9999;
+  const maximumPendingDrops = options.maximumPendingDrops ?? 2000;
+  const allowedSkillDefinitionIds = new Set(options.allowedSkillDefinitionIds ?? []);
+
+  function snapshot() {
+    const equippedItems = EQUIPMENT_SLOTS.map((slot) => items.find((item) => item.instanceId === slots[slot]) ?? null);
+    const bonuses = aggregateEquipmentBonuses(equippedItems);
+    const value = { kind: "AuthoritativeEquipmentSnapshot", equipmentVersion: version, slots: structuredClone(slots), items: structuredClone(items), skillCardStacks: structuredClone(skillCardStacks), pendingDrops: structuredClone(pendingDrops), acquisitionSerial, lootRollSerial, gold, maximumItems: maximumEquipmentItems, maximumEquipmentItems, maximumSkillStacks, maximumSkillQuantityPerStack, maximumPendingDrops, bonuses };
+    return Object.freeze({ ...value, equipmentHash: stableHash(value) });
+  }
+
+  function command(kind, input, allowed, mutate, createResult = (state) => state) {
+    if (!input || typeof input !== "object") throw new EquipmentCommandError("INVALID_COMMAND", "command must be an object");
+    for (const key of Object.keys(input)) if (!["requestId", "expectedVersion", ...allowed].includes(key)) throw new EquipmentCommandError(["affixes", "itemLevel", "bonuses", "value", "tier"].includes(key) ? "CLIENT_AUTHORITY_FIELD_REJECTED" : "UNEXPECTED_COMMAND_FIELD", `unexpected field ${key}`);
+    if (typeof input.requestId !== "string" || !input.requestId) throw new EquipmentCommandError("INVALID_REQUEST_ID", "requestId is required");
+    const fingerprint = stableHash({ kind, ...input });
+    if (results.has(input.requestId)) { const previous = results.get(input.requestId); if (previous.fingerprint !== fingerprint) throw new EquipmentCommandError("REQUEST_ID_REUSED", "request id was reused"); return previous.result; }
+    if (input.expectedVersion !== version) throw new EquipmentCommandError("VERSION_CONFLICT", "equipment version conflict");
+    const mutationResult = mutate(); version += 1; const result = createResult(snapshot(), mutationResult); results.set(input.requestId, { fingerprint, result }); while (results.size > 512) results.delete(results.keys().next().value); return result;
+  }
+
+  function grantDrop(input) { return command("grant_drop", input, ["monsterLevel", "mapId", "encounterId", "slot", "seed", "highAttribute"], () => { if (items.length >= maximumEquipmentItems) throw new EquipmentCommandError("EQUIPMENT_INVENTORY_FULL", "equipment inventory is full"); const generated = generateEquipmentDrop(input); if (items.some((item) => item.instanceId === generated.instanceId)) throw new EquipmentCommandError("DUPLICATE_DROP", "drop seed already granted"); items.push(generated); }); }
+
+  function rollMonsterLoot(input) { return command("roll_monster_loot", input, ["monsterLevel", "mapId", "encounterId", "monsterId", "seed"], () => {
+    if (pendingDrops.length >= maximumPendingDrops) throw new EquipmentCommandError("GROUND_LOOT_LIMIT_EXCEEDED", "map ground loot queue is full");
+    lootRollSerial += 1;
+    const validationRarities = [ITEM_RARITY.NORMAL, ITEM_RARITY.MAGIC, ITEM_RARITY.RARE, ITEM_RARITY.UNIQUE];
+    const validationCategories = [ITEM_CATEGORY.SKILL_CARD, ITEM_CATEGORY.SKILL_CARD, ITEM_CATEGORY.EQUIPMENT, ITEM_CATEGORY.EQUIPMENT, ITEM_CATEGORY.WEAPON, ITEM_CATEGORY.WEAPON];
+    const item = generateMonsterLoot({ ...input, rarity: lootRollSerial <= validationRarities.length ? validationRarities[lootRollSerial - 1] : undefined, category: lootRollSerial <= validationCategories.length ? validationCategories[lootRollSerial - 1] : undefined });
+    if (items.some((entry) => entry.instanceId === item.instanceId) || pendingDrops.some((entry) => entry.item.instanceId === item.instanceId)) throw new EquipmentCommandError("DUPLICATE_DROP", "monster drop already rolled");
+    const dropId = `drop-${stableHash({ monsterId: input.monsterId, seed: input.seed, itemId: item.instanceId }).slice(0, 12)}`;
+    pendingDrops.push({ dropId, monsterId: input.monsterId, createdAt: Date.now(), groundOrder: lootRollSerial, item });
+  }); }
+
+  function collectDrop(input) { return command("collect_drop", input, ["dropId"], () => {
+    const index = pendingDrops.findIndex((entry) => entry.dropId === input.dropId);
+    if (index < 0) throw new EquipmentCommandError("DROP_NOT_FOUND", "pending drop does not exist");
+    if (index !== 0) throw new EquipmentCommandError("DROP_ORDER_VIOLATION", "ground loot must be collected in drop order");
+    const drop = pendingDrops[0];
+    if (drop.item.category === ITEM_CATEGORY.SKILL_CARD) {
+      const existing = skillCardStacks.find((entry) => entry.skillLevel === drop.item.skillLevel && entry.unidentified === true && entry.quantity < maximumSkillQuantityPerStack);
+      if (!existing && skillCardStacks.length >= maximumSkillStacks) throw new EquipmentCommandError("SKILL_CARD_INVENTORY_FULL", "skill card stack inventory is full");
+      if (existing) existing.quantity += 1;
+      else skillCardStacks.push({ kind: "UnidentifiedSkillGemStack", stackId: `uncut-skill-lv-${drop.item.skillLevel}`, category: ITEM_CATEGORY.SKILL_CARD, subtype: "unidentified_skill_gem", name: "未鉴定技能宝石", icon: "✧", skillLevel: drop.item.skillLevel, itemLevel: drop.item.itemLevel, unidentified: true, quantity: 1, acquiredOrder: acquisitionSerial + 1 });
+    } else {
+      if (items.length >= maximumEquipmentItems) throw new EquipmentCommandError("EQUIPMENT_INVENTORY_FULL", "equipment inventory is full");
+      items.push({ ...drop.item, acquiredOrder: acquisitionSerial + 1 });
+    }
+    pendingDrops.shift(); acquisitionSerial += 1;
+  }); }
+
+  function identifySkillGem(input) {
+    return command("identify_skill_gem", input, ["stackId", "definitionId"], () => {
+      const stackIndex = skillCardStacks.findIndex((entry) => entry.stackId === input.stackId);
+      if (stackIndex < 0 || skillCardStacks[stackIndex].quantity < 1) throw new EquipmentCommandError("SKILL_GEM_STACK_NOT_OWNED", "unidentified skill gem stack is not owned");
+      if (!allowedSkillDefinitionIds.has(input.definitionId)) throw new EquipmentCommandError("SKILL_DEFINITION_NOT_ALLOWED", "skill definition is not in the server identification pool");
+      const stack = skillCardStacks[stackIndex];
+      const grantId = `skill-grant-${stableHash({ requestId: input.requestId, stackId: stack.stackId, definitionId: input.definitionId }).slice(0, 16)}`;
+      const grant = Object.freeze({
+        kind: "IdentifiedSkillCardGrant",
+        grantId,
+        instanceId: `identified-skill-${grantId.slice(-16)}`,
+        definitionId: input.definitionId,
+        level: stack.skillLevel,
+        sourceStackId: stack.stackId,
+      });
+      stack.quantity -= 1;
+      if (stack.quantity === 0) skillCardStacks.splice(stackIndex, 1);
+      return grant;
+    }, (state, grant) => Object.freeze({ snapshot: state, grant }));
+  }
+
+  function discard(input) { return command("discard", input, ["instanceId"], () => {
+    const index = items.findIndex((entry) => entry.instanceId === input.instanceId);
+    if (index < 0) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned");
+    if (Object.values(slots).includes(input.instanceId)) throw new EquipmentCommandError("EQUIPPED_ITEM_LOCKED", "equipped item must be unequipped first");
+    items.splice(index, 1);
+  }); }
+
+  function saleValue(item) { return Math.max(1, item.itemLevel) * (RARITY_META[item.rarity]?.rank + 1 || 1) * 5; }
+  function normalizeSaleFilter(filter) {
+    if (!filter || typeof filter !== "object" || Array.isArray(filter)) throw new EquipmentCommandError("INVALID_SALE_FILTER", "sale filter must be an object");
+    for (const key of Object.keys(filter)) if (!["maximumItemLevel", "rarities", "positions"].includes(key)) throw new EquipmentCommandError("INVALID_SALE_FILTER", `unexpected sale filter field ${key}`);
+    const maximumItemLevel = filter.maximumItemLevel;
+    if (!Number.isInteger(maximumItemLevel) || maximumItemLevel < 1 || maximumItemLevel > 60) throw new EquipmentCommandError("INVALID_SALE_FILTER", "maximumItemLevel must be 1-60");
+    const rarities = filter.rarities ?? [];
+    if (!Array.isArray(rarities) || rarities.some((rarity) => !ITEM_RARITIES.includes(rarity))) throw new EquipmentCommandError("INVALID_SALE_FILTER", "rarities contain an unknown value");
+    const validPositions = ["weapon", ...EQUIPMENT_SLOTS]; const positions = filter.positions ?? [];
+    if (!Array.isArray(positions) || positions.some((position) => !validPositions.includes(position))) throw new EquipmentCommandError("INVALID_SALE_FILTER", "positions contain an unknown value");
+    return { maximumItemLevel, rarities: [...new Set(rarities)], positions: [...new Set(positions)] };
+  }
+  function itemMatchesSaleFilter(item, filter) {
+    const position = item.category === ITEM_CATEGORY.WEAPON ? "weapon" : item.slot;
+    return item.itemLevel <= filter.maximumItemLevel && (!filter.rarities.length || filter.rarities.includes(item.rarity)) && (!filter.positions.length || filter.positions.includes(position));
+  }
+  function sellItems(input) {
+    const filter = normalizeSaleFilter(input?.filter);
+    return command("sell_items", input, ["filter"], () => {
+      const equipped = new Set(Object.values(slots).filter(Boolean));
+      const sold = items.filter((item) => !equipped.has(item.instanceId) && itemMatchesSaleFilter(item, filter));
+      if (!sold.length) throw new EquipmentCommandError("NO_ITEMS_MATCH_SALE_FILTER", "no unequipped items match the sale filter");
+      const soldIds = new Set(sold.map((item) => item.instanceId));
+      items = items.filter((item) => !soldIds.has(item.instanceId));
+      gold += sold.reduce((sum, item) => sum + saleValue(item), 0);
+    });
+  }
+
+  function equip(input) { return command("equip", input, ["instanceId", "slot"], () => { const item = items.find((entry) => entry.instanceId === input.instanceId); if (!item) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned"); if (!EQUIPMENT_SLOTS.includes(input.slot) || item.slot !== input.slot) throw new EquipmentCommandError("SLOT_MISMATCH", "item cannot be equipped in this slot"); slots[input.slot] = item.instanceId; }); }
+  function unequip(input) { return command("unequip", input, ["slot"], () => { if (!EQUIPMENT_SLOTS.includes(input.slot)) throw new EquipmentCommandError("UNKNOWN_SLOT", "unknown equipment slot"); slots[input.slot] = null; }); }
+  return Object.freeze({ snapshot, grantDrop, rollMonsterLoot, collectDrop, identifySkillGem, discard, sellItems, equip, unequip });
+}

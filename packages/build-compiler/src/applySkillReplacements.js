@@ -23,6 +23,7 @@ function normalizeBinding(binding, index) {
     throw new RangeError(`SkillReplacementBinding[${index}].insertionOrder must be a non-negative integer`);
   }
   return {
+    sourceKind: binding.sourceKind ?? "support_card",
     sourceDefinitionId: binding.sourceDefinitionId,
     sourceInstanceId: binding.sourceInstanceId,
     attachedSkillEntryId: binding.attachedSkillEntryId,
@@ -34,7 +35,7 @@ function normalizeBinding(binding, index) {
 function diagnostic(binding, status, skill, extra = {}) {
   return {
     type: "skill_replacement",
-    sourceKind: "support_card",
+    sourceKind: binding.sourceKind,
     sourceDefinitionId: binding.sourceDefinitionId,
     sourceInstanceId: binding.sourceInstanceId,
     insertionOrder: binding.insertionOrder,
@@ -51,6 +52,7 @@ function diagnostic(binding, status, skill, extra = {}) {
 
 function supportStatus(binding, status, skill, extra = {}) {
   return {
+    sourceKind: binding.sourceKind,
     sourceDefinitionId: binding.sourceDefinitionId,
     sourceInstanceId: binding.sourceInstanceId,
     attachedSkillEntryId: skill.entryId,

@@ -85,12 +85,13 @@ export function createAuthoritativeLoadoutService(options) {
   }
   let currentCompileInput;
   let currentBuild;
+  let characterStatSnapshot = options.characterStatSnapshot ?? null;
 
   function rebuild(nextOwnership) {
     assertValidWeaponLoadoutOwnership(nextOwnership, { maxSupportsPerSkill });
     const combatReady = nextOwnership.loadout.skillSockets.some(Boolean);
     const compileInput = combatReady
-      ? assembleTwoHandedSwordA1CompileInput(config, nextOwnership, { maxSupportsPerSkill })
+      ? assembleTwoHandedSwordA1CompileInput(config, nextOwnership, { maxSupportsPerSkill, characterStatSnapshot })
       : null;
     const compiledBuild = compileInput ? compileActionBuild(compileInput) : null;
     return { combatReady, compileInput, compiledBuild };
@@ -242,15 +243,56 @@ export function createAuthoritativeLoadoutService(options) {
     });
   }
   function setMasterySelection(command) {
-    return execute("set_mastery_selection", command, ["nodeIds"], (loadout) => {
-      if (!Array.isArray(command.nodeIds) || new Set(command.nodeIds).size !== command.nodeIds.length) {
+    return execute("set_mastery_selection", command, ["nodeIds", "nodeRanks", "nodeChoices"], (loadout) => {
+      const legacy = command.nodeIds !== undefined;
+      if (legacy && (!Array.isArray(command.nodeIds) || new Set(command.nodeIds).size !== command.nodeIds.length)) {
         throw new LoadoutCommandError("INVALID_MASTERY_SELECTION", "nodeIds must be a unique array");
+      }
+      if (!legacy && (!command.nodeRanks || typeof command.nodeRanks !== "object" || Array.isArray(command.nodeRanks))) {
+        throw new LoadoutCommandError("INVALID_MASTERY_SELECTION", "nodeRanks must be an object");
       }
       const masteryAllocation = createMasteryAllocation({
         boardDefinitionId: loadout.masteryAllocation.boardDefinitionId,
-        nodeRanks: Object.fromEntries(command.nodeIds.map((nodeId) => [nodeId, 1])),
+        nodeRanks: legacy ? Object.fromEntries(command.nodeIds.map((nodeId) => [nodeId, 1])) : command.nodeRanks,
+        nodeChoices: legacy
+          ? Object.fromEntries(Object.entries(config.build?.defaultMasteryNodeChoices ?? {}).filter(([nodeId]) => command.nodeIds.includes(nodeId)))
+          : (command.nodeChoices ?? {}),
       });
       return loadoutWith(loadout, { masteryAllocation });
+    });
+  }
+
+  function setSkillCardLevel(command) {
+    return execute("set_skill_card_level", command, ["skillInstanceId", "level"], (loadout) => {
+      const existing = currentOwnership.skillCardInstances.find((item) => item.instanceId === command.skillInstanceId);
+      if (!existing) throw new LoadoutCommandError("SKILL_INSTANCE_NOT_OWNED", "skill card instance is not owned");
+      let updated;
+      try {
+        updated = createSkillCardInstance({ ...existing, level: command.level });
+      } catch (error) {
+        throw new LoadoutCommandError("INVALID_CARD_LEVEL", error.message);
+      }
+      return {
+        loadout,
+        skillCardInstances: currentOwnership.skillCardInstances.map((item) => item.instanceId === updated.instanceId ? updated : item),
+      };
+    });
+  }
+
+  function setSupportCardLevel(command) {
+    return execute("set_support_card_level", command, ["supportInstanceId", "level"], (loadout) => {
+      const existing = currentOwnership.supportCardInstances.find((item) => item.instanceId === command.supportInstanceId);
+      if (!existing) throw new LoadoutCommandError("SUPPORT_INSTANCE_NOT_OWNED", "support card instance is not owned");
+      let updated;
+      try {
+        updated = createSupportCardInstance({ ...existing, level: command.level });
+      } catch (error) {
+        throw new LoadoutCommandError("INVALID_CARD_LEVEL", error.message);
+      }
+      return {
+        loadout,
+        supportCardInstances: currentOwnership.supportCardInstances.map((item) => item.instanceId === updated.instanceId ? updated : item),
+      };
     });
   }
 
@@ -279,6 +321,7 @@ export function createAuthoritativeLoadoutService(options) {
           masteryAllocation: createMasteryAllocation({
             boardDefinitionId: definition.masteryBoardDefinitionId,
             nodeRanks: Object.fromEntries((config.build?.defaultMasteryNodeIds ?? []).map((nodeId) => [nodeId, 1])),
+            nodeChoices: config.build?.defaultMasteryNodeChoices ?? {},
           }),
         });
         return {
@@ -315,6 +358,39 @@ export function createAuthoritativeLoadoutService(options) {
     });
   }
 
+  function grantIdentifiedSkillCard(grant) {
+    assertRecord(grant, "IdentifiedSkillCardGrant");
+    const allowed = new Set(["kind", "grantId", "instanceId", "definitionId", "level", "sourceStackId"]);
+    for (const field of Object.keys(grant)) if (!allowed.has(field)) throw new LoadoutCommandError("INVALID_SKILL_CARD_GRANT", `unexpected grant field ${field}`);
+    if (grant.kind !== "IdentifiedSkillCardGrant" || typeof grant.grantId !== "string" || typeof grant.instanceId !== "string") {
+      throw new LoadoutCommandError("INVALID_SKILL_CARD_GRANT", "identified skill card grant is malformed");
+    }
+    const existing = currentOwnership.skillCardInstances.find((item) => item.instanceId === grant.instanceId);
+    if (existing) {
+      if (existing.definitionId !== grant.definitionId || existing.level !== grant.level) throw new LoadoutCommandError("SKILL_CARD_GRANT_CONFLICT", "grant instance already exists with different content");
+      return snapshot();
+    }
+    const definition = currentOwnership.registry.skills[grant.definitionId];
+    if (!definition || definition.sourceType !== "skill_card") throw new LoadoutCommandError("UNKNOWN_SKILL_CARD_DEFINITION", "skill card definition does not exist");
+    const totalItems = currentOwnership.weaponInstances.length + currentOwnership.skillCardInstances.length + currentOwnership.supportCardInstances.length;
+    if (totalItems >= maxInventoryItems) throw new LoadoutCommandError("INVENTORY_LIMIT_EXCEEDED", "loadout inventory limit reached");
+    let created;
+    try {
+      created = createSkillCardInstance({ instanceId: grant.instanceId, definitionId: grant.definitionId, level: grant.level });
+    } catch (error) {
+      throw new LoadoutCommandError("INVALID_SKILL_CARD_GRANT", error.message);
+    }
+    const nextOwnership = cloneOwnership(currentOwnership, currentOwnership.loadout, {
+      skillCardInstances: [...currentOwnership.skillCardInstances, created],
+    });
+    const rebuilt = equippedWeaponInstanceId === null ? { compileInput: null, compiledBuild: null } : rebuild(nextOwnership);
+    currentOwnership = nextOwnership;
+    currentCompileInput = rebuilt.compileInput;
+    currentBuild = rebuilt.compiledBuild;
+    version += 1;
+    return snapshot();
+  }
+
   function equipWeapon(command) {
     return execute("equip_weapon", command, ["weaponInstanceId"], () => {
       if (!currentOwnership.weaponInstances.some((item) => item.instanceId === command.weaponInstanceId)) {
@@ -333,6 +409,17 @@ export function createAuthoritativeLoadoutService(options) {
     }));
   }
 
+  function setCharacterStatSnapshot(nextSnapshot) {
+    characterStatSnapshot = nextSnapshot ?? null;
+    const rebuilt = equippedWeaponInstanceId === null
+      ? { compileInput: null, compiledBuild: null }
+      : rebuild(currentOwnership);
+    currentCompileInput = rebuilt.compileInput;
+    currentBuild = rebuilt.compiledBuild;
+    version += 1;
+    return snapshot();
+  }
+
   const initial = equippedWeaponInstanceId === null
     ? { compileInput: null, compiledBuild: null }
     : rebuild(currentOwnership);
@@ -341,5 +428,7 @@ export function createAuthoritativeLoadoutService(options) {
   const stats = () => Object.freeze({ idempotencyEntries: commandResults.size, maxCommandResults });
   return Object.freeze({
     snapshot, stats, grantTestItem, equipWeapon, unequipWeapon, equipSkill, unequipSkill, setSupport, setMasterySelection,
+    setSkillCardLevel, setSupportCardLevel, grantIdentifiedSkillCard,
+    setCharacterStatSnapshot,
   });
 }

@@ -8,6 +8,10 @@ export const UNIT_CONTRACT = Object.freeze({
 });
 
 export const DEFAULT_EVENT_DERIVATION_LIMIT = 8;
+export const DEFAULT_EVENT_GRAPH_LIMIT = 256;
+export const DEFAULT_DERIVED_EVENT_LIMIT = 128;
+export const MAX_DERIVED_EVENTS_PER_TRIGGER = 16;
+export const MAX_COMBAT_EVENT_PAYLOAD_BYTES = 16 * 1024;
 export const DEFAULT_GLOBAL_COOLDOWN_MS = 500;
 
 export const SKILL_CAST_TYPE = Object.freeze({
@@ -33,6 +37,12 @@ export const CHANNEL_END_REASON = Object.freeze({
 
 function assertFiniteNumber(value, name) {
   if (!Number.isFinite(value)) throw new TypeError(`${name} must be a finite number`);
+}
+
+function freezeCombatValue(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.values(value).forEach(freezeCombatValue);
+  return Object.freeze(value);
 }
 
 function assertNumericBoundary(value, name) {
@@ -248,11 +258,19 @@ export function createSeededRng(seed) {
 export function createRootCombatEvent(input) {
   if (!input?.id) throw new Error("root event id is required");
   if (!input?.type) throw new Error("root event type is required");
+  const payload = structuredClone(input.payload ?? {});
+  if (JSON.stringify(payload).length > MAX_COMBAT_EVENT_PAYLOAD_BYTES) {
+    throw new RangeError(`combat event payload exceeds ${MAX_COMBAT_EVENT_PAYLOAD_BYTES} bytes`);
+  }
   return Object.freeze({
     id: input.id,
     type: input.type,
     sourceId: input.sourceId ?? null,
-    payload: structuredClone(input.payload ?? {}),
+    payload: freezeCombatValue(payload),
+    eventOrigin: "root",
+    rootEventId: input.id,
+    parentEventId: null,
+    triggerId: null,
     derivedFrom: null,
     derivationDepth: 0,
     triggerChain: Object.freeze([]),
@@ -271,13 +289,130 @@ export function createDerivedCombatEvent(parent, input, options = {}) {
     throw new Error(`recursive event trigger blocked: ${input.triggerId}`);
   }
 
+  const payload = structuredClone(input.payload ?? {});
+  if (JSON.stringify(payload).length > MAX_COMBAT_EVENT_PAYLOAD_BYTES) {
+    throw new RangeError(`combat event payload exceeds ${MAX_COMBAT_EVENT_PAYLOAD_BYTES} bytes`);
+  }
   return Object.freeze({
     id: input.id,
     type: input.type,
     sourceId: input.sourceId ?? parent.sourceId ?? null,
-    payload: structuredClone(input.payload ?? {}),
+    payload: freezeCombatValue(payload),
+    eventOrigin: "derived",
+    rootEventId: parent.rootEventId ?? parent.id,
+    parentEventId: parent.id,
+    triggerId: input.triggerId,
     derivedFrom: parent.id,
     derivationDepth: parent.derivationDepth + 1,
     triggerChain: Object.freeze([...parent.triggerChain, input.triggerId]),
+  });
+}
+
+export class CombatEventGraphError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "CombatEventGraphError";
+    this.code = code;
+  }
+}
+
+function normalizeEventGraphLimits(options = {}) {
+  const limits = {
+    maxDepth: options.maxDepth ?? DEFAULT_EVENT_DERIVATION_LIMIT,
+    maxEvents: options.maxEvents ?? DEFAULT_EVENT_GRAPH_LIMIT,
+    maxDerivedEvents: options.maxDerivedEvents ?? DEFAULT_DERIVED_EVENT_LIMIT,
+  };
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer`);
+  }
+  if (limits.maxDerivedEvents >= limits.maxEvents) {
+    throw new RangeError("maxDerivedEvents must be smaller than maxEvents");
+  }
+  return limits;
+}
+
+function normalizeEventTriggers(input = []) {
+  if (!Array.isArray(input)) throw new TypeError("event triggers must be an array");
+  const ids = new Set();
+  return input.map((trigger, index) => {
+    if (!trigger?.id || typeof trigger.id !== "string") throw new TypeError(`event trigger ${index} requires an id`);
+    if (ids.has(trigger.id)) throw new Error(`duplicate event trigger id ${trigger.id}`);
+    ids.add(trigger.id);
+    if (!Array.isArray(trigger.eventTypes) || !trigger.eventTypes.length ||
+      trigger.eventTypes.some((type) => typeof type !== "string" || !type)) {
+      throw new TypeError(`event trigger ${trigger.id} requires eventTypes`);
+    }
+    if (typeof trigger.handle !== "function") throw new TypeError(`event trigger ${trigger.id} requires a handle function`);
+    if (!Number.isInteger(trigger.priority ?? 0)) throw new TypeError(`event trigger ${trigger.id} priority must be an integer`);
+    return { ...trigger, eventTypes: [...new Set(trigger.eventTypes)], priority: trigger.priority ?? 0 };
+  }).sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
+}
+
+export function resolveCombatEventGraph(input, options = {}) {
+  const limits = normalizeEventGraphLimits(options);
+  if (!Array.isArray(input?.rootEvents) || input.rootEvents.length < 1) {
+    throw new TypeError("rootEvents must be a non-empty array");
+  }
+  if (input.rootEvents.length > limits.maxEvents - limits.maxDerivedEvents) {
+    throw new CombatEventGraphError("ROOT_EVENT_BUDGET_EXCEEDED", "root event budget exceeded");
+  }
+  const triggers = normalizeEventTriggers(input.triggers);
+  const seenEventIds = new Set();
+  const queue = input.rootEvents.map((event) => {
+    const normalized = event?.eventOrigin === "root" ? event : createRootCombatEvent(event);
+    if (normalized.eventOrigin !== "root" || normalized.derivationDepth !== 0) {
+      throw new CombatEventGraphError("INVALID_ROOT_EVENT", "rootEvents cannot contain derived events");
+    }
+    if (seenEventIds.has(normalized.id)) throw new CombatEventGraphError("DUPLICATE_EVENT_ID", normalized.id);
+    seenEventIds.add(normalized.id);
+    return normalized;
+  });
+  const events = [];
+  const diagnostics = [];
+  let derivedCount = 0;
+  let nextDerivedSequence = 0;
+
+  while (queue.length) {
+    const event = queue.shift();
+    events.push(event);
+    if (events.length > limits.maxEvents) throw new CombatEventGraphError("EVENT_GRAPH_BUDGET_EXCEEDED", "event graph budget exceeded");
+    for (const trigger of triggers) {
+      if (!trigger.eventTypes.includes(event.type)) continue;
+      if (event.triggerChain.includes(trigger.id)) {
+        diagnostics.push(Object.freeze({ code: "RECURSIVE_TRIGGER_BLOCKED", eventId: event.id, triggerId: trigger.id }));
+        continue;
+      }
+      if (event.derivationDepth >= limits.maxDepth) {
+        diagnostics.push(Object.freeze({ code: "DERIVATION_DEPTH_BLOCKED", eventId: event.id, triggerId: trigger.id }));
+        continue;
+      }
+      const produced = trigger.handle(event);
+      if (produced === undefined || produced === null) continue;
+      const outputs = Array.isArray(produced) ? produced : [produced];
+      if (outputs.length > MAX_DERIVED_EVENTS_PER_TRIGGER) {
+        throw new CombatEventGraphError("TRIGGER_FANOUT_EXCEEDED", trigger.id);
+      }
+      for (const output of outputs) {
+        derivedCount += 1;
+        if (derivedCount > limits.maxDerivedEvents) {
+          throw new CombatEventGraphError("DERIVED_EVENT_BUDGET_EXCEEDED", "derived event budget exceeded");
+        }
+        nextDerivedSequence += 1;
+        const derived = createDerivedCombatEvent(event, {
+          ...output,
+          id: `derived:${String(nextDerivedSequence).padStart(6, "0")}`,
+          triggerId: trigger.id,
+        }, { maxDepth: limits.maxDepth });
+        if (seenEventIds.has(derived.id)) throw new CombatEventGraphError("DUPLICATE_EVENT_ID", derived.id);
+        seenEventIds.add(derived.id);
+        queue.push(derived);
+      }
+    }
+  }
+  return Object.freeze({
+    events: Object.freeze(events),
+    diagnostics: Object.freeze(diagnostics),
+    rootEventCount: input.rootEvents.length,
+    derivedEventCount: derivedCount,
   });
 }

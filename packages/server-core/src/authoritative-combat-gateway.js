@@ -1,5 +1,5 @@
 import { COMBAT_COMMAND, CombatGatewayError, validateCombatCommand } from "./combat-request-schema.js";
-import { createCompiledAuthoritativeSimulator } from "./compiled-authoritative-simulator.js";
+import { createAuthoritativeSimulatorRouter } from "./authoritative-simulator-router.js";
 import { stableHash } from "../../build-compiler/src/compileActionBuild.js";
 import { assertValidWeaponLoadoutOwnership } from "../../game-domain/src/model.js";
 import { assertCompileInputMatchesOwnership } from "./compile-input-ownership.js";
@@ -45,7 +45,7 @@ function assertRevision(actual, expected) {
   }
 }
 
-function publicSession(session, simulation = null) {
+function publicSession(session, simulation = null, simulator = null) {
   return deepFreeze({
     combatSessionId: session.combatSessionId,
     characterId: session.characterId,
@@ -55,7 +55,7 @@ function publicSession(session, simulation = null) {
     configVersion: session.configVersion,
     encounterDefinitionId: session.encounterDefinitionId,
     simulatedUntilMs: session.runtimeState.simulatedUntilMs,
-    state: {
+    state: simulator?.projectState ? simulator.projectState(session.runtimeState) : {
       monsterHp: session.runtimeState.monsterHp,
       settled: session.runtimeState.settled,
     },
@@ -86,7 +86,7 @@ export function createAuthoritativeCombatGateway(options) {
   requireMethod(commandStore, "executeOnce", "commandStore");
   requireMethod(settlementStore, "claimCombatRewards", "settlementStore");
 
-  const simulator = options.simulator ?? createCompiledAuthoritativeSimulator();
+  const simulator = options.simulator ?? createAuthoritativeSimulatorRouter();
   requireMethod(simulator, "createInitialState", "simulator");
   requireMethod(simulator, "advance", "simulator");
   const compileInputAssembler = options.compileInputAssembler ?? (({ authority }) => authority.compileInput);
@@ -160,7 +160,7 @@ export function createAuthoritativeCombatGateway(options) {
       });
       const created = await sessionStore.createIfNoActive(session);
       if (!created) throw new CombatGatewayError("ACTIVE_COMBAT_SESSION_EXISTS", "character already has an active combat session", { retryable: true });
-      return publicSession(session, simulation);
+      return publicSession(session, simulation, simulator);
     });
   }
 
@@ -188,7 +188,7 @@ export function createAuthoritativeCombatGateway(options) {
       });
       const saved = await sessionStore.compareAndSet(session.combatSessionId, session.revision, next);
       if (!saved) throw new CombatGatewayError("SESSION_REVISION_CONFLICT", "combat session changed concurrently", { retryable: true });
-      return publicSession(next, simulation);
+      return publicSession(next, simulation, simulator);
     });
   }
 

@@ -1,6 +1,7 @@
 export const DOMAIN_SCHEMA_VERSION = "domain-v2";
 export const WEAPON_SKILL_SOCKET_COUNT = 5;
 export const MAX_ROLLED_WEAPON_SKILLS = 5;
+export const MAX_CARD_LEVEL = 10;
 export const SKILL_SOURCE_TYPE = Object.freeze({
   SKILL_CARD: "skill_card",
   WEAPON_SKILL: "weapon_skill",
@@ -29,9 +30,9 @@ function assertId(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(name + " must be a non-empty string");
 }
 
-function assertInteger(value, name, minimum = 0) {
-  if (!Number.isInteger(value) || value < minimum) {
-    throw new RangeError(name + " must be an integer greater than or equal to " + minimum);
+function assertInteger(value, name, minimum = 0, maximum = Infinity) {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new RangeError(name + " must be an integer between " + minimum + " and " + maximum);
   }
 }
 
@@ -252,7 +253,7 @@ export function createSkillCardInstance(input) {
   rejectInstanceRelations(input, "SkillCardInstance");
   assertId(input.instanceId, "SkillCardInstance.instanceId");
   assertId(input.definitionId, "SkillCardInstance.definitionId");
-  assertInteger(input.level ?? 1, "SkillCardInstance.level", 1);
+  assertInteger(input.level ?? 1, "SkillCardInstance.level", 1, MAX_CARD_LEVEL);
   assertFiniteNumber(input.quality ?? 0, "SkillCardInstance.quality", 0);
   return deepFreeze({
     kind: "SkillCardInstance",
@@ -268,7 +269,7 @@ export function createSupportCardInstance(input) {
   rejectInstanceRelations(input, "SupportCardInstance");
   assertId(input.instanceId, "SupportCardInstance.instanceId");
   assertId(input.definitionId, "SupportCardInstance.definitionId");
-  assertInteger(input.level ?? 1, "SupportCardInstance.level", 1);
+  assertInteger(input.level ?? 1, "SupportCardInstance.level", 1, MAX_CARD_LEVEL);
   assertFiniteNumber(input.quality ?? 0, "SupportCardInstance.quality", 0);
   return deepFreeze({
     kind: "SupportCardInstance",
@@ -288,7 +289,18 @@ export function createMasteryAllocation(input) {
     assertId(nodeId, "MasteryAllocation.nodeId");
     assertInteger(rank, "MasteryAllocation.nodeRanks." + nodeId, 1);
   }
-  return deepFreeze({ boardDefinitionId: input.boardDefinitionId, nodeRanks: { ...nodeRanks } });
+  const nodeChoices = input.nodeChoices ?? {};
+  assertRecord(nodeChoices, "MasteryAllocation.nodeChoices");
+  for (const [nodeId, choiceId] of Object.entries(nodeChoices)) {
+    assertId(nodeId, "MasteryAllocation.nodeChoices nodeId");
+    assertId(choiceId, "MasteryAllocation.nodeChoices." + nodeId);
+    if (!Object.hasOwn(nodeRanks, nodeId)) throw new Error("mastery choice requires an allocated node: " + nodeId);
+  }
+  return deepFreeze({
+    boardDefinitionId: input.boardDefinitionId,
+    nodeRanks: { ...nodeRanks },
+    nodeChoices: { ...nodeChoices },
+  });
 }
 
 export function createWeaponLoadout(input) {

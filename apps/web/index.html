@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
   <title>双手剑 · 实时战斗日志</title>
-  <link rel="stylesheet" href="./theme-ro.css?v=build-sync-3">
+  <link rel="stylesheet" href="./theme-ro.css?v=combat-floats-1">
+  <link rel="stylesheet" href="./character-stats-v2.css?v=mastery-stats-2">
+  <link rel="stylesheet" href="./m3-numeric-lab.css?v=m3d-1">
+  <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-1">
 </head>
 <body>
   <div class="app-shell">
@@ -15,7 +18,8 @@
         <button type="button">首页</button>
         <button type="button" class="active">战斗日志</button>
         <button type="button" disabled>战斗规则<small>后续</small></button>
-        <button type="button" disabled>精通盘<small>后续</small></button>
+        <button id="masteryNavBtn" type="button">精通盘<small>可验收</small></button>
+        <button id="partyNavBtn" type="button">四人队伍<small>V0</small></button>
         <button type="button" disabled>技能构筑<small>后续</small></button>
       </nav>
       <div class="sidebar-build">
@@ -44,6 +48,7 @@
               <i class="future-range"></i><i class="attack-range" id="attackRange"></i>
               <i class="radar-axis axis-x"></i><i class="radar-axis axis-y"></i>
               <div id="radarUnits"></div>
+              <div class="player-floats" id="playerFloats"></div>
               <span class="radar-player"><img src="./assets/player-knight.png" alt="玩家"></span>
               <small class="range-label range-10">10m</small><small class="range-label range-20">20m</small><small class="range-label range-24">24m</small><small class="range-label range-30">30m</small>
             </div>
@@ -54,7 +59,6 @@
               <div><small>玩家</small><strong>双手剑持有者</strong><span id="playerStatus">HP 100/100 · 斗气 0/100</span></div>
               <b id="playerLifeState">战斗中</b><b id="aliveCount">存活 0 / 4</b>
             </div>
-            <div class="player-floats" id="playerFloats"></div>
             <div class="roster-title"><span>目标列表</span><small>按距离自动锁定</small></div>
             <div id="enemyRoster" class="enemy-roster">
               <div class="empty-roster">正在扫描草原...</div>
@@ -69,7 +73,7 @@
 
       <section class="metric-grid" aria-label="战斗统计">
         <article><span>输出 DPS</span><strong id="dpsMetric">0</strong><small id="totalMetric">总伤害 0</small></article>
-        <article><span>暴击率</span><strong>0.0%</strong><small>暴击 0 / 命中 <b id="hitMetric">0</b></small></article>
+        <article><span>暴击率</span><strong id="critMetric">0.0%</strong><small>暴击 <b id="critDetail">0</b> / 命中 <b id="hitMetric">0</b></small></article>
         <article><span>平均伤害</span><strong id="avgMetric">0</strong><small>最大 <b id="maxMetric">0</b> / 最小 <b id="minMetric">0</b></small></article>
         <article><span>命中率</span><strong id="accuracyMetric">0.0%</strong><small>命中 <b id="hitDetail">0</b> / 尝试 <b id="attemptMetric">0</b></small></article>
         <article><span>自动斩击</span><strong id="slashMetric">0</strong><small>独立内部计时</small></article>
@@ -83,6 +87,58 @@
         <span id="runtimeHealth" class="state-chip runtime-health">运行缓存 · 初始化</span>
       </section>
 
+      <section class="encounter-tuning" aria-label="M2A遭遇参数测试">
+        <div class="encounter-tuning-title"><div><small>M2A · ENCOUNTER WORLD</small><strong>固定中心与探索遇敌</strong></div><span id="encounterAuthorityReadout">中心 0,0 · 硬保护 64</span><b id="encounterIntervalReadout">3.00s / 怪</b></div>
+        <div class="encounter-control"><span>移动速度<small>仅影响遇敌频率</small></span><div><button class="active" data-encounter-setting="movementSpeedMultiplier" data-encounter-value="1">100%</button><button data-encounter-setting="movementSpeedMultiplier" data-encounter-value="1.5">150%</button><button data-encounter-setting="movementSpeedMultiplier" data-encounter-value="2">200%</button></div></div>
+        <div class="encounter-control"><span>怪物接近速度<small>不受玩家移速影响</small></span><div><button data-encounter-setting="monsterApproachSpeedMps" data-encounter-value="6">6m/s</button><button class="active" data-encounter-setting="monsterApproachSpeedMps" data-encounter-value="9.5">9.5m/s</button><button data-encounter-setting="monsterApproachSpeedMps" data-encounter-value="14">14m/s</button></div></div>
+        <div class="encounter-capacity-auto"><span>动态遭遇上限<small>移速理论 × 12秒击杀窗口</small></span><div><strong id="encounterFrequencyCapacityReadout">移速理论 6 怪</strong><strong id="encounterCapacityReadout">当前容量 3 怪</strong><strong id="encounterKillRateReadout">击杀频率 0.00 / 秒</strong></div><p>无击杀只保留3个基础交战位；持续击杀才逐步放宽。死亡5秒后复活时清屏并重新扫描。</p></div>
+      </section>
+
+      <section class="character-stats-lab" aria-label="RO六维属性权威验证">
+        <header><div><small>M2C · CHARACTER PROGRESSION</small><strong>RO 六维加点与战斗属性</strong><span>Lv.30 测试角色 · 客户端只提交“加哪一点”</span></div><b id="statProgressionVersion">Stats v1</b></header>
+        <div class="stat-budget"><span id="statLevel">Lv.30</span><div><small>剩余 / 总属性点</small><strong id="statPointBudget">0 / 0</strong></div><p id="statAuthorityMessage">服务器属性快照已建立</p></div>
+        <div class="primary-stat-grid">
+          <article><small>STR · 力量</small><strong id="stat-str-value">1</strong><span id="stat-str-detail">最终 1</span><div class="stat-stepper"><button id="stat-str-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-str-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+          <article><small>INT · 智力</small><strong id="stat-int-value">1</strong><span id="stat-int-detail">最终 1</span><div class="stat-stepper"><button id="stat-int-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-int-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+          <article><small>AGI · 敏捷</small><strong id="stat-agi-value">1</strong><span id="stat-agi-detail">最终 1</span><div class="stat-stepper"><button id="stat-agi-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-agi-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+          <article><small>DEX · 灵巧</small><strong id="stat-dex-value">1</strong><span id="stat-dex-detail">最终 1</span><div class="stat-stepper"><button id="stat-dex-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-dex-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+          <article><small>CON · 体质</small><strong id="stat-con-value">1</strong><span id="stat-con-detail">最终 1</span><div class="stat-stepper"><button id="stat-con-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-con-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+          <article><small>LUK · 幸运</small><strong id="stat-luk-value">1</strong><span id="stat-luk-detail">最终 1</span><div class="stat-stepper"><button id="stat-luk-subtract" class="subtract" type="button" aria-label="减少1点">−</button><button id="stat-luk-add" class="add" type="button" aria-label="增加1点">＋</button></div></article>
+        </div>
+        <div class="derived-summary-head"><div><strong>二级属性摘要</strong><small>悬停或键盘聚焦可查看来源</small></div><button id="statDetailsToggle" type="button" aria-expanded="false">查看二级属性详情</button></div>
+        <div class="derived-stat-grid"><span>物攻 <b id="statPhysicalAttack">0</b></span><span>魔攻 <b id="statMagicAttack">0</b></span><span>生命 <b id="statMaxHp">0</b></span><span>攻击频率 <b id="statAttackRate">1×</b></span><span>吟唱倍率 <b id="statCastRate">1×</b></span><span>遇敌移速 <b id="statEncounterRate">1×</b></span></div>
+        <section id="statDerivedPanel" class="derived-detail-panel" hidden>
+          <header><div><strong>完整二级属性</strong><small>列表由服务器属性快照动态生成，新增精通属性会自动进入这里</small></div></header>
+          <div id="statDerivedDetails" class="derived-detail-groups"></div>
+          <section class="combat-rate-details"><h4>战斗换算结果</h4><div id="statRateDetails"></div></section>
+        </section>
+        <div class="stat-proof"><b id="statBuildProof">等待构筑</b><div><button id="statDamageTest" type="button">运行权威伤害样本</button><button id="statForgeryTest" type="button">伪造最终属性测试</button><button id="statReset" type="button">洗点</button></div></div>
+      </section>
+
+      <section class="party-lab" id="partyLab" aria-label="Party V0 四人队伍权威验证">
+        <header class="party-lab-head">
+          <div><small>PARTY V0 · SERVER AUTHORITATIVE</small><strong>四人队伍与铁三角定位</strong><span>队伍只保存成员与构筑引用；完整技能在组队战斗创建时由服务器解析</span></div>
+          <div><b id="partyVersion">Party v1</b><strong id="partyCommandState" data-tone="ready">服务器队伍快照已建立</strong></div>
+        </header>
+        <div class="party-overview">
+          <article><small>成员容量</small><strong id="partyCapacity">1 / 4</strong></article>
+          <article><small>队伍构成</small><strong id="partyComposition">坦 0 · 治 0 · 输出 1</strong></article>
+          <article><small>权威构筑引用</small><strong id="partyBuildRefs">0 / 1 可解析</strong></article>
+          <article><small>Party Hash</small><strong id="partyHash">计算中</strong></article>
+        </div>
+        <div id="partySlots" class="party-slots"></div>
+        <div class="party-controls">
+          <div><small>服务器测试角色</small><div id="partyCandidates" class="party-candidates"></div></div>
+          <aside><b>验收操作</b><p>可逐个加入成员、切换定位、设置就绪和移出。四人硬上限与构筑伪造均由服务器拒绝。</p><button id="partyFillBtn" type="button">一键组成铁三角队伍</button><button id="partyForgeryBtn" type="button">发送伪造构筑包</button></aside>
+        </div>
+      </section>
+      <section class="server-authority-lab" aria-label="M2C服务器权威遭遇与回放验证">
+        <header><div><small>M2B + M2C · SERVER AUTHORITY</small><strong>无限遭遇与确定性回放验证台</strong></div><b id="serverAuthorityState" data-tone="ready">等待构筑同步</b></header>
+        <div class="server-authority-metrics"><article><small>构筑哈希</small><strong id="serverBuildHash">等待可战斗构筑</strong></article><article><small>玩家状态</small><strong id="serverPlayerState">尚未创建会话</strong></article><article><small>怪物状态</small><strong id="serverMonsterState">0 个权威目标</strong></article><article><small>会话时间</small><strong id="serverEncounterState">等待服务器模拟</strong></article></div>
+        <div class="server-authority-actions"><button id="serverRunTenSeconds" type="button">权威推进10秒</button><button id="serverRunReviveCase" type="button">死亡复活清屏用例</button><button id="serverRunForgeryCase" type="button">发送伪造状态包</button><button id="serverRunReplayCase" type="button">生成并验证回放</button><button id="serverRunReplayForgery" type="button">篡改回放摘要</button></div>
+        <div class="server-replay-proof"><article><small>回放记录</small><strong id="serverReplayRecord">尚未生成</strong></article><article><small>固定输入</small><strong id="serverReplayInput">种子 0x12345678</strong></article><article><small>事件链</small><strong id="serverReplayEvents">等待复算</strong></article><article><small>复算结论</small><strong id="serverReplayVerdict">等待验证</strong></article></div>
+        <ol id="serverAuthorityEvents" class="server-authority-events"><li class="empty">运行用例后显示服务器事件</li></ol>
+      </section>
       <section class="character-weapon-panel" aria-label="角色武器栏">
         <header><div><p>CHARACTER WEAPON SLOT</p><h2>角色武器栏</h2><span>初始为空 · 将背包武器拖到这里穿戴</span></div><b id="weaponEquipState">武器栏为空</b></header>
         <div class="character-weapon-slot empty" id="weaponEquipDropZone">
@@ -91,7 +147,7 @@
         </div>
       </section>
       <div class="lower-grid">
-      <section class="log-panel">
+      <section class="log-panel" id="combatLogPanel">
         <div class="log-toolbar">
           <div><h2>战斗日志</h2><span id="logSummary">等待战斗开始</span></div>
           <div class="toolbar-controls">
@@ -141,14 +197,14 @@
           </div>
         </div>
         <div class="inventory-body">
-          <div><div id="inventoryGrid" class="inventory-grid"></div><p class="inventory-legend"><span>装备中</span><span>已镶嵌</span><span>已连接</span><span>锁定</span><span>空闲</span></p></div>
+          <div><div id="inventoryGrid" class="inventory-grid"></div><p class="inventory-legend"><span>装备中</span><span>已镶嵌</span><span>已连接</span><span>基准保留</span><span>空闲</span></p></div>
           <aside id="inventoryDetail" class="inventory-detail"><small>ITEM DETAIL</small><h3>选择一个物品</h3><p>点击查看来源与占用关系；拖到武器区或五孔完成操作。</p></aside>
         </div>
       </section>
       <section class="loadout-lab-panel" id="loadoutLab" aria-label="武器构筑验证台">
         <header class="loadout-lab-head">
           <div><p>AUTHORITATIVE LOADOUT</p><h2>武器构筑验证台</h2><span>背包实例 → 五孔关系 → 辅助连接 → 精通分配 → 服务器编译快照</span></div>
-          <div class="loadout-authority-actions"><button id="resetLoadoutBtn" type="button">恢复基准</button><button id="runAcceptanceBtn" type="button">一键联合验收</button></div><div class="loadout-authority-status"><b id="authorityVersion">Loadout v1</b><strong id="authorityReady" class="ready">可进入战斗</strong><span id="loadoutCommandState" class="accepted">服务器确认成功</span></div>
+          <div class="loadout-authority-actions"><button id="resetLoadoutBtn" type="button">恢复基准</button><button id="runAcceptanceBtn" type="button">M1完整闭环验收</button></div><div class="loadout-authority-status"><b id="authorityVersion">Loadout v1</b><strong id="authorityReady" class="ready">可进入战斗</strong><span id="loadoutCommandState" class="accepted">服务器确认成功</span></div>
         </header>
 
         <div class="loadout-lab-grid">
@@ -178,9 +234,28 @@
           </aside>
         </div>
 
-        <div class="mastery-workbench">
-          <header><div><small>WEAPON MASTERY</small><h3>双手剑精通盘验证</h3></div><b id="masterySpent">5 / 30 点</b><div><button id="masteryBaseBtn" type="button">基础路线</button><button id="masteryFullBtn" type="button">完整 30 点</button></div></header>
-          <div id="masteryTrack" class="mastery-track"></div>
+        <div class="mastery-workbench" id="masteryWorkbench">
+          <header class="mastery-head">
+            <div><small>WEAPON MASTERY · SERVER AUTHORITATIVE</small><h3>双手剑精通盘验证</h3><span>左键购买/预览 · 右键退点 · 分支切换会自动清理失效后续节点</span></div>
+            <b id="masterySpent">5 / 30 点</b>
+            <div class="mastery-presets"><button id="masteryBaseBtn" type="button">基础路线</button><button id="masteryFullBtn" type="button">完整 30 点</button><button id="masteryResetBtn" type="button">清空</button></div>
+          </header>
+          <div class="mastery-board-shell">
+            <section class="mastery-board-panel">
+              <div class="mastery-toolbar"><span id="masteryStatus">选择节点查看购买条件与最终效果</span><div><button id="masteryZoomOut" type="button" aria-label="缩小">−</button><b id="masteryZoomLabel">100%</b><button id="masteryZoomIn" type="button" aria-label="放大">＋</button><button id="masteryFitBtn" type="button">适应</button></div></div>
+              <div id="masteryViewport" class="mastery-viewport"><div id="masteryCanvas" class="mastery-canvas"><svg id="masteryEdges" class="mastery-edges" viewBox="0 0 1160 520" aria-hidden="true"></svg><div id="masteryTrack" class="mastery-track"></div></div></div>
+              <div class="mastery-legend"><span class="purchased">已购买</span><span class="available">可购买</span><span class="locked">未满足条件</span><span class="choice">分支选择</span><span class="capstone">核心/替换</span></div>
+            </section>
+            <aside class="mastery-detail">
+              <small id="masteryDetailMeta">节点详情</small><h3 id="masteryDetailTitle">双手剑精通</h3><p id="masteryDetailCopy">点击任意节点查看效果。</p>
+              <div id="masteryChoiceOptions" class="mastery-choice-options"></div>
+              <div class="mastery-capabilities"><b>本版已落地</b><span>资源解锁 · 参数叠加 · 最终下限 · 完整技能替换</span><b>协议已预留</b><span>Action/Selector整体替换 · 事件规则 · 自动释放策略 · 授予技能</span></div>
+              <div class="mastery-combat-bridge"><b>战斗链路</b><span id="masteryCombatState">检查武器与服务器构筑中</span><div><button id="masteryEquipTestBtn" type="button">装上测试武器</button><button id="masteryRunCombatBtn" type="button">用当前精通开始战斗</button></div><div id="masteryRuntimeProof"></div></div>
+              <section><b>服务器实际生效</b><div id="masteryEffectEvidence" class="mastery-effect-evidence"></div></section>
+              <section><b>当前层级叠加</b><div id="masteryStackEvidence" class="mastery-stack-evidence"></div></section>
+              <section><b>已投入节点</b><div id="masteryPicked" class="mastery-picked"></div></section>
+            </aside>
+          </div>
         </div>
 
         <div class="joint-acceptance-grid">
@@ -190,6 +265,9 @@
               <li id="frontCheckWeapon"><i>1</i><div><b>武器穿戴</b><small>卸下后禁止战斗，重新穿戴后恢复武器自己的五孔构筑</small></div><strong>待验证</strong></li>
               <li id="frontCheckSkill"><i>2</i><div><b>技能卡穿戴</b><small>技能实例只能通过五孔关系进入服务器编译列表</small></div><strong>待验证</strong></li>
               <li id="frontCheckSupport"><i>3</i><div><b>辅助卡连接</b><small>辅助卡固定在武器物理孔；技能拔出后保留休眠，插入新技能后重新判定</small></div><strong>待验证</strong></li>
+              <li id="frontCheckMastery"><i>4</i><div><b>精通权威编译</b><small>30点路线、叠加效果与完整技能替换进入服务器构筑</small></div><strong>待验证</strong></li>
+              <li id="frontCheckRuntime"><i>5</i><div><b>真实战斗Runtime</b><small>最终技能主体产生范围伤害事件，而非只改变面板文字</small></div><strong>待验证</strong></li>
+              <li id="frontCheckRestore"><i>6</i><div><b>刷新恢复重编译</b><small>存档不保存最终数值；从资产与WeaponLoadout重建相同哈希</small></div><strong>待验证</strong></li>
             </ol>
           </section>
           <section class="acceptance-backend">
@@ -258,10 +336,76 @@
         </div>
       </section>
 
+      <section class="m4-itemization-lab" id="m4ItemizationLab" aria-label="M4B掉落、拾取与背包成长闭环">
+        <header><div><small>M4B · SERVER AUTHORITATIVE LOOT & INVENTORY</small><h2>地图掉落、自动拾取与冒险背包</h2><p>真实击杀 → 品质光柱 → 延迟汇聚 → 权威入包 → 分类整理 → 穿戴生效</p></div><b id="m4AuthorityState">Equipment v1</b></header>
+        <div class="m4-map-controls">
+          <label><span>地图规则</span><select id="m4MapMode"><option value="fixed">成长地图 · 固定等级</option><option value="dynamic">最终地图 · 动态等级</option></select></label>
+          <label><span>地图等级</span><input id="m4MapLevel" type="number" min="1" max="60" value="10"></label>
+          <label><span>玩家等级</span><input id="m4PlayerLevel" type="number" min="1" max="60" value="30"></label>
+          <article><small>本次怪物等级</small><strong id="m4MonsterLevel">Lv.30</strong></article>
+          <article><small>必定掉落等级</small><strong id="m4DropLevel">物品 Lv.30</strong></article>
+          <button id="m4SimulateDrop" type="button">模拟击杀并掉落</button>
+        </div>
+        <p class="m4-mock-note">M4B 实战投放：高亮细光柱落地后按掉落顺序自动拾取；背包满时物品继续保留在地图队列（最多 2,000 件），腾出空间后从最早一件继续。</p>
+        <section class="m4-loot-status"><div><small>地图待拾取</small><strong id="m4PendingDrops">0 / 2,000 件</strong></div><div><small>拾取状态</small><strong id="m4LatestPickup">等待怪物掉落</strong></div><ol id="m4PickupFeed"><li>开始战斗后，真实击杀会生成掉落</li></ol></section>
+        <div class="m4-content-grid">
+          <section><h3>角色装备栏 <small>4 防具 + 3 首饰</small></h3><div id="m4EquipmentSlots" class="m4-slots"></div></section>
+          <section class="m4-backpack"><h3>冒险背包 <span><small id="m4InventoryCount">装备 0 / 600</small><b id="m4GoldBalance">金币 0</b></span></h3>
+            <nav id="m4BagTabs" class="m4-bag-tabs" aria-label="独立背包"><button class="active" data-bag="equipment">装备背包</button><button data-bag="skill_card">卡片背包</button><button data-bag="currency">通货背包 <small>预留</small></button></nav>
+            <div id="m4EquipmentBagPanel">
+              <nav id="m4CategoryTabs" class="m4-category-tabs" aria-label="装备背包类型"><button class="active" data-category="all">全部装备</button><button data-category="weapon">武器</button><button data-category="equipment">防具与首饰</button></nav>
+              <div class="m4-inventory-tools"><label>精确分类<select id="m4SubtypeFilter"><option value="all">全部类型</option></select></label><label>品质<select id="m4RarityFilter"><option value="all">全部品质</option><option value="normal">白色·普通</option><option value="magic">蓝色·魔法</option><option value="rare">黄色·稀有</option><option value="unique">暗金</option></select></label><label>排序<select id="m4SortMode"><option value="acquired">获得顺序</option><option value="rarity">品质优先</option><option value="level">等级优先</option></select></label><button id="m4AutoSort" type="button">一键自动排序</button><button id="m4ResetLootTest" class="secondary" type="button">清空测试背包</button></div>
+              <section class="m4-sell-panel"><header><div><small>BATCH SELL POLICY · SERVER AUTHORITATIVE</small><b>一键出售筛选</b></div><strong id="m4SaleResult">尚未执行出售</strong></header><div><label>物品等级不高于<input id="m4SaleMaxLevel" type="number" min="1" max="60" value="10"></label><label>品质<select id="m4SaleRarity"><option value="normal">白色·普通</option><option value="magic">蓝色·魔法</option><option value="rare">黄色·稀有</option><option value="unique">暗金</option><option value="all">全部品质</option></select></label><label>位置<select id="m4SalePosition"><option value="all">全部位置</option><option value="weapon">武器</option><option value="head">头部</option><option value="chest">胸甲</option><option value="hands">手部</option><option value="feet">脚部</option><option value="neck">项链</option><option value="ring_left">左戒</option><option value="ring_right">右戒</option></select></label><button id="m4SellMatched" type="button">出售符合条件装备</button></div><p id="m4SalePreview">正在计算可出售物品；已穿戴装备始终受到保护。</p></section>
+              <div class="m4-backpack-workspace"><div id="m4EquipmentInventory" class="m4-inventory"><p class="empty">开始战斗，等待怪物掉落进入背包</p></div><div class="m4-detail-compare"><section id="m4ItemDetail" class="m4-item-detail"><p>点击背包图标查看物品详细属性</p></section><section id="m4CompareDetail" class="m4-item-detail compare"><p>同部位已穿戴装备会显示在这里</p></section></div></div>
+            </div>
+            <div id="m4SkillBagPanel" class="m4-special-bag" hidden><div id="m4SkillInventory" class="m4-inventory"><p class="empty">尚未拾取未鉴定技能宝石</p></div><section id="m4SkillDetail" class="m4-item-detail"><div class="m4-detail-empty"><b>未鉴定技能宝石</b><span>同等级自动堆叠；后续鉴定时再选择具体技能</span></div></section></div>
+            <div id="m4CurrencyBagPanel" class="m4-reserved-bag" hidden><b>通货背包 · 数据边界已预留</b><span>本轮不投放通货；后续装备打造阶段独立接入，不占装备或卡片容量。</span></div>
+          </section>
+        </div>
+        <section class="m4-pickup-log"><header><div><b>拾取日志</b><small>最多保留最近 80 条，不随战斗日志无限增长</small></div><span id="m4PickupLogCount">0 条</span></header><div class="m4-pickup-log-head"><span>时间</span><span>品质</span><span>类型</span><span>物品</span><span>等级</span></div><div id="m4PickupLog"><p>等待第一件物品汇聚入包</p></div></section>
+        <div class="m4-proof"><article><small>装备属性来源</small><strong id="m4BonusProof">尚未穿戴装备</strong></article><article><small>构筑同步</small><strong id="m4BuildProof">等待穿戴</strong></article><button id="m4ForgeryTest" type="button">伪造词缀包测试</button></div>
+      </section>
+
+      <section class="m3-numeric-lab" id="m3NumericLab" aria-label="M3战斗数值实验室">
+        <header class="m3-lab-head">
+          <div><small>M3D · AUTHORITATIVE NUMERIC LAB</small><h2>战斗数值实验室</h2><p>当前权威构筑 × 技能等级 × 怪物曲线 × 固定随机种子</p></div>
+          <div><b id="m3Schema">combat-numerics-v0</b><strong id="m3LabState">等待可战斗构筑</strong></div>
+        </header>
+        <div class="m3-controls">
+          <label><span>当前技能</span><select id="m3Skill"></select></label>
+          <label><span>技能等级</span><select id="m3SkillLevel"></select></label>
+          <label><span>已连接辅助卡</span><select id="m3Support"></select></label>
+          <label><span>辅助卡等级</span><select id="m3SupportLevel"></select></label>
+          <label><span>怪物类型</span><select id="m3MonsterTier"><option value="normal">普通怪</option><option value="elite">精英怪</option><option value="boss">Boss</option></select></label>
+          <label><span>怪物等级</span><input id="m3MonsterLevel" type="number" min="1" max="60" value="30"></label>
+          <label><span>批量样本</span><select id="m3Samples"><option value="100">100</option><option value="1000" selected>1,000</option><option value="5000">5,000</option></select></label>
+          <label><span>随机种子</span><input id="m3Seed" type="number" value="20260828"></label>
+          <button id="m3Run" type="button">重新模拟</button>
+        </div>
+        <div class="m3-metrics">
+          <article><small>平均单次伤害</small><strong id="m3Average">—</strong><span id="m3Range">范围 —</span></article>
+          <article><small>技能 DPS</small><strong id="m3Dps">—</strong><span id="m3Frequency">频率 —</span></article>
+          <article><small>有效暴击率</small><strong id="m3Crit">—</strong><span id="m3CritProof">评级结算</span></article>
+          <article><small>目标减伤</small><strong id="m3Mitigation">—</strong><span id="m3DefenseProof">防御 − 穿透</span></article>
+          <article><small>预计击杀时间</small><strong id="m3Ttk">—</strong><span id="m3MonsterProof">目标 —</span></article>
+        </div>
+        <div class="m3-lab-grid">
+          <section class="m3-breakdown"><header><div><b>单次伤害来源拆解</b><small>展示本批第一个固定种子样本；最终只取整一次</small></div><span id="m3DamageType">物理</span></header><div id="m3Stages"></div></section>
+          <aside class="m3-comparison"><header><b>A/B 成长对比</b><small>同构筑、同怪物、同种子</small></header><div id="m3Comparison"></div><div class="m3-histogram" id="m3Histogram" aria-label="伤害分布"></div></aside>
+        </div>
+        <section class="m3-acceptance"><header><div><b>M3 自动验收用例</b><small>最终人工验收前的快速自检</small></div><button id="m3RunAcceptance" type="button">运行全部用例</button></header><ol id="m3AcceptanceCases"></ol></section>
+      </section>
+
     </main>
   </div>
-  <script type="module" src="./battle-ro.js?v=build-sync-3"></script>
+  <script type="module" src="./battle-ro.js?v=m4b-12"></script>
+  <script type="module" src="./authority-encounter-lab.js?v=m2c-replay-1"></script>
+  <script type="module" src="./character-stats-lab-v2.js?v=mastery-stats-2"></script>
+  <script type="module" src="./party-lab.js?v=party-combat-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
-  <script type="module" src="./loadout-lab.js?v=build-sync-3"></script>
+  <script type="module" src="./loadout-lab.js?v=hot-swap-1"></script>
+  <script type="module" src="./m3-numeric-lab.js?v=m3d-1"></script>
+  <script type="module" src="./m4-itemization-lab.js?v=m4c-1"></script>
+  <script type="module" src="./workspace-shell.js?v=m4b-12"></script>
 </body>
 </html>

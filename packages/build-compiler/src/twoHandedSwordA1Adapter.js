@@ -98,6 +98,9 @@ function createSkillEntry(skill, identity = {}) {
       kind: EFFECT_KIND.DIRECT_DAMAGE,
       params: {
         multiplier: skill.stats.damageMultiplier,
+        baseMultiplier: skill.stats.damageMultiplier,
+        skillLevel: identity.level ?? 1,
+        skillLevelGrowth: skill.skillLevelGrowth ?? 0.08,
         hitCount: skill.stats.hitCount ?? 1,
         executeThreshold: skill.stats.executeThreshold ?? null,
       },
@@ -117,6 +120,15 @@ function createSkillEntry(skill, identity = {}) {
       params: {
         stateId: skill.applyState.stateId,
         durationMs: skill.applyState.durationMs ?? null,
+        ...(skill.applyState.statusKind ? { statusKind: skill.applyState.statusKind } : {}),
+        ...(skill.applyState.stackCount ? { stackCount: skill.applyState.stackCount } : {}),
+        ...(skill.applyState.maxStacks ? { maxStacks: skill.applyState.maxStacks } : {}),
+        ...(skill.applyState.stackPolicy ? { stackPolicy: skill.applyState.stackPolicy } : {}),
+        ...(skill.applyState.durationPolicy ? { durationPolicy: skill.applyState.durationPolicy } : {}),
+        ...(skill.applyState.sourceScope ? { sourceScope: skill.applyState.sourceScope } : {}),
+        ...(skill.applyState.persistsThroughDeath !== undefined
+          ? { persistsThroughDeath: skill.applyState.persistsThroughDeath }
+          : {}),
         ...(skill.applyState.backgroundActionIntervalMultiplier !== undefined
           ? { backgroundActionIntervalMultiplier: skill.applyState.backgroundActionIntervalMultiplier }
           : {}),
@@ -154,6 +166,8 @@ function createSkillEntry(skill, identity = {}) {
       activationResource: skill.activationResource ?? null,
       prototypeValue: skill.prototypeValue ?? false,
       originalTags: [...(skill.tags ?? [])],
+      level: identity.level ?? 1,
+      quality: identity.quality ?? 0,
     },
     skillTags,
     actions: [createActionDefinition({
@@ -192,6 +206,17 @@ function splitCompatibilityTags(tags = []) {
     action: tags.filter((tag) => ACTION_TAGS.has(tag)),
   };
 }
+
+function levelScaledSupportValue(effect, supportLevel) {
+  const level = supportLevel ?? 1;
+  if (!Number.isInteger(level) || level < 1 || level > 10) throw new RangeError("supportLevel must be an integer between 1 and 10");
+  const growth = effect.levelGrowthPerLevel ?? 0;
+  if (growth === 0 || level === 1) return effect.value;
+  if (effect.operator === "multiply") return 1 + (effect.value - 1) * (1 + (level - 1) * growth);
+  if (effect.operator === "add") return effect.value * (1 + (level - 1) * growth);
+  return effect.value;
+}
+
 function createSupportBindings(config, assignments, equippedEntries) {
   const supportMap = indexById(config.supports);
   return assignments.filter((assignment) => !supportMap.get(assignment.supportId)?.replacementSkillDefinitionId)
@@ -232,14 +257,14 @@ function createSupportBindings(config, assignments, equippedEntries) {
         changes: definition.effects.map((effect) => ({
           operator: effect.operator,
           path: mapPath(effect.path),
-          value: effect.value,
+          value: levelScaledSupportValue(effect, assignment.supportLevel),
         })),
       });
     }
     return {
       script: createSupportScriptDefinition({
         version: SUPPORT_SCRIPT_VERSION,
-        id: "support-script:" + definition.id,
+        id: `support-script:${definition.id}:level:${assignment.supportLevel ?? 1}`,
         compatibility: {
           skillAll: compatibility.skill,
           skillNone: excluded.skill,
@@ -253,6 +278,7 @@ function createSupportBindings(config, assignments, equippedEntries) {
       sourceInstanceId: assignment.supportInstanceId ?? "prototype:" + definition.id + ":" + index,
       attachedSkillEntryId: target.entryId,
       insertionOrder: assignment.insertionOrder ?? index,
+      supportLevel: assignment.supportLevel ?? 1,
     };
   });
 }
@@ -272,6 +298,8 @@ function createSkillReplacementBindings(config, assignments, equippedEntries) {
       const replacementEntry = createSkillEntry(replacementSkill, {
         entryId: "replacement-template:" + replacementSkill.id,
         sourceInstanceId: "server-template:" + replacementSkill.id,
+        level: target.level ?? 1,
+        quality: target.quality ?? 0,
       });
       const compatibility = splitCompatibilityTags(support.compatibility?.requireAll).skill;
       const excluded = splitCompatibilityTags(support.compatibility?.excludeAny).skill;
@@ -293,29 +321,71 @@ function createSkillReplacementBindings(config, assignments, equippedEntries) {
       };
     });
 }
-function createMasteryBindings(config, selectedNodeIds, compiledEntries) {
-  const nodeMap = indexById(config.masteryNodes);
-  return selectedNodeIds.flatMap((nodeId, nodeOrder) => {
-    const node = nodeMap.get(nodeId);
-    return (node.effects ?? []).flatMap((effect, effectIndex) => {
-      const targets = compiledEntries.filter((entry) => entry.definitionId === effect.skillId);
-      return targets.map((target) => ({
-        modifier: createModifierDefinition({
-          id: `mastery:${node.id}:${effectIndex}`,
-          sourceKind: MODIFIER_SOURCE_KIND.MASTERY_NODE,
-          sourceDefinitionId: node.id,
-          phase: MODIFIER_PHASE.POST_SUPPORT,
-          selector: {},
-          operations: [{ operator: effect.operator, path: mapPath(effect.path), value: effect.value }],
-        }),
-        sourceInstanceId: null,
-        attachedSkillEntryId: target.entryId,
-        insertionOrder: nodeOrder * 100 + effectIndex,
-      }));
-    });
+function masteryOperation(operation) {
+  return {
+    ...operation,
+    ...(operation.path ? { path: operation.path.startsWith("timing.") || operation.path.startsWith("effects.") || operation.path.startsWith("targeting.")
+      ? operation.path
+      : mapPath(operation.path) } : {}),
+  };
+}
+
+function createMasteryBindings(config, masteryBudget, compiledEntries) {
+  return masteryBudget.activeEffects.flatMap((item, effectOrder) => {
+    if (!item.active || item.effect.kind !== "modifier") return [];
+    const targets = item.effect.skillId
+      ? compiledEntries.filter((entry) => entry.definitionId === item.effect.skillId)
+      : [null];
+    return Array.from({ length: item.rank }, (_, rankIndex) => targets.map((target, targetIndex) => ({
+      modifier: createModifierDefinition({
+        id: `mastery:${item.nodeId}:${effectOrder}:rank:${rankIndex}:target:${targetIndex}`,
+        sourceKind: MODIFIER_SOURCE_KIND.MASTERY_NODE,
+        sourceDefinitionId: item.nodeId,
+        phase: item.effect.phase ?? MODIFIER_PHASE.POST_SUPPORT,
+        priority: item.effect.priority ?? 0,
+        conflictGroup: item.effect.conflictGroup ?? null,
+        selector: item.effect.selector ?? {},
+        operations: item.effect.operations.map(masteryOperation),
+      }),
+      sourceInstanceId: null,
+      attachedSkillEntryId: target?.entryId ?? null,
+      insertionOrder: effectOrder * 1_000 + rankIndex * 10 + targetIndex,
+    }))).flat();
   });
 }
 
+function createMasteryReplacementBindings(config, masteryBudget, compiledEntries) {
+  const replacementMap = indexById(config.replacementSkills ?? []);
+  return masteryBudget.activeEffects.flatMap((item, effectOrder) => {
+    if (!item.active || item.effect.kind !== "skill_replacement") return [];
+    const replacementSkill = replacementMap.get(item.effect.replacementSkillDefinitionId);
+    if (!replacementSkill) throw new Error("Unknown mastery replacement skill: " + item.effect.replacementSkillDefinitionId);
+    return compiledEntries.filter((entry) => entry.definitionId === item.effect.skillId).map((target, targetIndex) => {
+      const template = createSkillEntry(replacementSkill, {
+        entryId: "mastery-replacement-template:" + replacementSkill.id,
+        sourceInstanceId: "server-template:" + replacementSkill.id,
+        level: target.level ?? 1,
+        quality: target.quality ?? 0,
+      });
+      return {
+      replacement: createSkillReplacementDefinition({
+        id: `mastery-skill-replacement:${item.nodeId}:${effectOrder}`,
+        effectiveDefinitionId: replacementSkill.id,
+        compatibility: item.effect.compatibility ?? {},
+        removeSkillTags: item.effect.removeSkillTags ?? [],
+        addSkillTags: item.effect.addSkillTags ?? [],
+        runtime: template.runtime,
+        actions: template.actions,
+      }),
+      sourceKind: MODIFIER_SOURCE_KIND.MASTERY_NODE,
+      sourceDefinitionId: item.nodeId,
+      sourceInstanceId: `mastery:${item.nodeId}:${effectOrder}:${targetIndex}`,
+      attachedSkillEntryId: target.entryId,
+      insertionOrder: 100_000 + effectOrder * 100 + targetIndex,
+    };
+    });
+  });
+}
 export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudget) {
   const skillMap = indexById(config.skills);
   const slotEntries = selection.skillSlotEntries ?? selection.skillSlots.map((definitionId, socketIndex) => (
@@ -333,8 +403,11 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
     ...weaponEntries.map((entry) => createSkillEntry(skillMap.get(entry.definitionId), entry)),
   ];
   const supportScriptBindings = createSupportBindings(config, selection.supportAssignments, equippedEntries);
-  const skillReplacementBindings = createSkillReplacementBindings(config, selection.supportAssignments, equippedEntries);
-  const modifierBindings = createMasteryBindings(config, selection.masteryNodeIds, compiledEntries);
+  const skillReplacementBindings = [
+    ...createSkillReplacementBindings(config, selection.supportAssignments, equippedEntries),
+    ...createMasteryReplacementBindings(config, masteryBudget, compiledEntries),
+  ];
+  const modifierBindings = createMasteryBindings(config, masteryBudget, compiledEntries);
   const activeResourceIds = selection.buildMetadata?.activeResourceDefinitionIds;
   const resourceDefinitions = config.resources
     .filter((resource) => !Array.isArray(activeResourceIds) || activeResourceIds.includes(resource.id))
@@ -352,11 +425,13 @@ export function createTwoHandedSwordA1ActionInput(config, selection, masteryBudg
     supportScriptBindings,
     skillReplacementBindings,
     autoPolicy: structuredClone(config.build.autoPolicy),
+    characterStats: selection.characterStats ? structuredClone(selection.characterStats) : null,
     buildMetadata: {
       weaponId: config.weapon.id,
       masteryBoardId: config.weapon.masteryBoardId,
       buildId: config.build.id,
       selectedMasteryNodeIds: [...selection.masteryNodeIds],
+      masteryNodeChoices: { ...(selection.masteryNodeChoices ?? {}) },
       masteryBudget,
       ...structuredClone(selection.buildMetadata ?? {}),
     },

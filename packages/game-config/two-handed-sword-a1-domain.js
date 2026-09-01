@@ -93,14 +93,19 @@ export function createTwoHandedSwordA1DemoOwnership(config, options = {}) {
   const skillCardInstances = config.build.allowedSkillIds.map((definitionId, index) => createSkillCardInstance({
     instanceId: `${TWO_HANDED_SWORD_A1_DEMO_IDS.skillInstancePrefix}${index + 1}`,
     definitionId,
+    level: options.skillLevels?.[definitionId] ?? 1,
   }));
   const supportCardInstances = config.supports.map((support, index) => createSupportCardInstance({
     instanceId: `${TWO_HANDED_SWORD_A1_DEMO_IDS.supportInstancePrefix}${index + 1}`,
     definitionId: support.id,
+    level: options.supportLevels?.[support.id] ?? 1,
   }));
   const skillInstanceByDefinition = new Map(skillCardInstances.map((instance) => [instance.definitionId, instance]));
   const selectedSkillDefinitionIds = options.skillDefinitionIds ?? config.build.defaultSkillSlots;
   const selectedMasteryNodeIds = options.masteryNodeIds ?? config.build.defaultMasteryNodeIds;
+  const requestedMasteryNodeChoices = options.masteryNodeChoices ?? config.build.defaultMasteryNodeChoices ?? {};
+  const selectedMasteryNodeChoices = Object.fromEntries(Object.entries(requestedMasteryNodeChoices)
+    .filter(([nodeId]) => selectedMasteryNodeIds.includes(nodeId)));
   const skillSockets = Array.from({ length: 5 }, (_, index) => {
     const definitionId = selectedSkillDefinitionIds[index] ?? null;
     return definitionId ? skillInstanceByDefinition.get(definitionId)?.instanceId ?? null : null;
@@ -112,6 +117,7 @@ export function createTwoHandedSwordA1DemoOwnership(config, options = {}) {
     masteryAllocation: createMasteryAllocation({
       boardDefinitionId: config.weapon.masteryBoardId,
       nodeRanks: Object.fromEntries(selectedMasteryNodeIds.map((nodeId) => [nodeId, 1])),
+      nodeChoices: selectedMasteryNodeChoices,
     }),
   });
   return Object.freeze({
@@ -157,6 +163,7 @@ export function createTwoHandedSwordA1InventoryLabOwnership(config) {
       masteryAllocation: createMasteryAllocation({
         boardDefinitionId: config.weapon.masteryBoardId,
         nodeRanks: Object.fromEntries(config.build.defaultMasteryNodeIds.map((nodeId) => [nodeId, 1])),
+        nodeChoices: config.build.defaultMasteryNodeChoices ?? {},
       }),
     });
     weaponLoadouts.push(loadout);
