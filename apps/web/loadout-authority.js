@@ -189,6 +189,9 @@ export function publishLoadoutSnapshot(snapshot = loadoutAuthority.snapshot()) {
 export function acceptIdentifiedSkillCardGrant(grant) {
   return publishLoadoutSnapshot(loadoutAuthority.grantIdentifiedSkillCard(grant));
 }
+export function acceptLootWeaponGrant(grant) {
+  return publishLoadoutSnapshot(loadoutAuthority.grantLootWeapon(grant));
+}
 export function verifyLocalSaveRoundTrip(snapshot = loadoutAuthority.snapshot()) {
   const save = createLocalSaveV0({ configVersion: config.configVersion, snapshot, autoPolicy: activeAutoPolicy });
   const serialized = serializeLocalSaveV0(save);

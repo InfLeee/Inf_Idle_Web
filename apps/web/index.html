@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./theme-ro.css?v=combat-floats-1">
   <link rel="stylesheet" href="./character-stats-v2.css?v=mastery-stats-2">
   <link rel="stylesheet" href="./m3-numeric-lab.css?v=m3d-1">
-  <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-1">
+  <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-3">
 </head>
 <body>
   <div class="app-shell">
@@ -336,8 +336,8 @@
         </div>
       </section>
 
-      <section class="m4-itemization-lab" id="m4ItemizationLab" aria-label="M4B掉落、拾取与背包成长闭环">
-        <header><div><small>M4B · SERVER AUTHORITATIVE LOOT & INVENTORY</small><h2>地图掉落、自动拾取与冒险背包</h2><p>真实击杀 → 品质光柱 → 延迟汇聚 → 权威入包 → 分类整理 → 穿戴生效</p></div><b id="m4AuthorityState">Equipment v1</b></header>
+      <section class="m4-itemization-lab" id="m4ItemizationLab" aria-label="M4C掉落、随机装备与构筑成长闭环">
+        <header><div><small>M4C · SERVER AUTHORITATIVE ITEMIZATION V2</small><h2>地图掉落、随机装备与冒险背包</h2><p>怪物等级 → 基底准入 → 词缀标签/权重/T级 → 权威入包 → 穿戴重编译 → 战斗生效</p></div><b id="m4AuthorityState">Equipment v2</b></header>
         <div class="m4-map-controls">
           <label><span>地图规则</span><select id="m4MapMode"><option value="fixed">成长地图 · 固定等级</option><option value="dynamic">最终地图 · 动态等级</option></select></label>
           <label><span>地图等级</span><input id="m4MapLevel" type="number" min="1" max="60" value="10"></label>
@@ -345,8 +345,9 @@
           <article><small>本次怪物等级</small><strong id="m4MonsterLevel">Lv.30</strong></article>
           <article><small>必定掉落等级</small><strong id="m4DropLevel">物品 Lv.30</strong></article>
           <button id="m4SimulateDrop" type="button">模拟击杀并掉落</button>
+          <button id="m4SimulateWeapon" type="button">生成 M4C 测试双手剑</button>
         </div>
-        <p class="m4-mock-note">M4B 实战投放：高亮细光柱落地后按掉落顺序自动拾取；背包满时物品继续保留在地图队列（最多 2,000 件），腾出空间后从最早一件继续。</p>
+        <p class="m4-mock-note">M4C 正式规则：物品等级等于怪物等级；基底和词缀阶级受物等门槛限制；T1 为最高阶；魔法最多 1 前缀 + 1 后缀，稀有最多 3 前缀 + 3 后缀；同词缀组互斥。掉落武器可直接生成正式 WeaponLoadout 并实时进入战斗。</p>
         <section class="m4-loot-status"><div><small>地图待拾取</small><strong id="m4PendingDrops">0 / 2,000 件</strong></div><div><small>拾取状态</small><strong id="m4LatestPickup">等待怪物掉落</strong></div><ol id="m4PickupFeed"><li>开始战斗后，真实击杀会生成掉落</li></ol></section>
         <div class="m4-content-grid">
           <section><h3>角色装备栏 <small>4 防具 + 3 首饰</small></h3><div id="m4EquipmentSlots" class="m4-slots"></div></section>
@@ -398,14 +399,14 @@
 
     </main>
   </div>
-  <script type="module" src="./battle-ro.js?v=m4b-12"></script>
+  <script type="module" src="./battle-ro.js?v=m4c-3"></script>
   <script type="module" src="./authority-encounter-lab.js?v=m2c-replay-1"></script>
   <script type="module" src="./character-stats-lab-v2.js?v=mastery-stats-2"></script>
   <script type="module" src="./party-lab.js?v=party-combat-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
   <script type="module" src="./loadout-lab.js?v=hot-swap-1"></script>
   <script type="module" src="./m3-numeric-lab.js?v=m3d-1"></script>
-  <script type="module" src="./m4-itemization-lab.js?v=m4c-1"></script>
-  <script type="module" src="./workspace-shell.js?v=m4b-12"></script>
+  <script type="module" src="./m4-itemization-lab.js?v=m4c-3"></script>
+  <script type="module" src="./workspace-shell.js?v=m4c-3"></script>
 </body>
 </html>

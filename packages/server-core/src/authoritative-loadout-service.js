@@ -180,6 +180,10 @@ export function createAuthoritativeLoadoutService(options) {
       if (!currentOwnership.skillCardInstances.some((item) => item.instanceId === command.skillInstanceId)) {
         throw new LoadoutCommandError("SKILL_INSTANCE_NOT_OWNED", "skill card instance is not owned");
       }
+      const activeWeapon = currentOwnership.weaponInstances.find((item) => item.instanceId === loadout.weaponInstanceId);
+      if (command.socketIndex >= (activeWeapon?.skillCardSocketCount ?? 5)) {
+        throw new LoadoutCommandError("SKILL_SOCKET_LOCKED", "weapon has not unlocked this physical skill socket");
+      }
       const occupiedByOtherWeapon = weaponLoadouts.some((item) =>
         item.weaponInstanceId !== loadout.weaponInstanceId && item.skillSockets.includes(command.skillInstanceId));
       if (occupiedByOtherWeapon) {
@@ -216,6 +220,7 @@ export function createAuthoritativeLoadoutService(options) {
       if (command.skillInstanceId !== undefined && skillSocketIndex !== socketIndex) {
         throw new LoadoutCommandError("SUPPORT_TARGET_SOCKET_MISMATCH", "skill instance does not occupy the requested socket");
       }
+      const activeWeapon = currentOwnership.weaponInstances.find((item) => item.instanceId === loadout.weaponInstanceId);
       if (!currentOwnership.supportCardInstances.some((item) => item.instanceId === command.supportInstanceId)) {
         throw new LoadoutCommandError("SUPPORT_INSTANCE_NOT_OWNED", "support card instance is not owned");
       }
@@ -232,8 +237,9 @@ export function createAuthoritativeLoadoutService(options) {
         if (occupiedByOtherWeapon) {
           throw new LoadoutCommandError("SUPPORT_OCCUPIED_BY_OTHER_WEAPON", "support card is connected to another weapon");
         }
-        if (supportSlots[socketIndex].length >= maxSupportsPerSkill) {
-          throw new LoadoutCommandError("SUPPORT_LIMIT_EXCEEDED", `a physical skill socket can contain at most ${maxSupportsPerSkill} supports`);
+        const supportLimit = Math.min(maxSupportsPerSkill, activeWeapon?.supportSocketsPerSkill ?? maxSupportsPerSkill);
+        if (supportSlots[socketIndex].length >= supportLimit) {
+          throw new LoadoutCommandError("SUPPORT_LIMIT_EXCEEDED", `this weapon skill socket can contain at most ${supportLimit} supports`);
         }
         supportSlots[socketIndex].push(command.supportInstanceId);
         const previousOrders = Object.values(supportInsertionOrder);
@@ -391,6 +397,85 @@ export function createAuthoritativeLoadoutService(options) {
     return snapshot();
   }
 
+  // Internal service-to-service grant. The browser cannot author weapon stats:
+  // itemization authority must provide the complete immutable loot result.
+  function grantLootWeapon(grant) {
+    assertRecord(grant, "LootWeaponGrant");
+    const allowed = new Set(["kind", "grantId", "sourceItemInstanceId", "instanceId", "definitionId", "rolledAffixes", "rolledWeaponSkillDefinitionIds", "skillCardSocketCount", "supportSocketsPerSkill", "grantedSocketedSkillCard"]);
+    for (const field of Object.keys(grant)) if (!allowed.has(field)) throw new LoadoutCommandError("INVALID_WEAPON_GRANT", `unexpected weapon grant field ${field}`);
+    if (grant.kind !== "LootWeaponGrant" || typeof grant.grantId !== "string" || typeof grant.instanceId !== "string") {
+      throw new LoadoutCommandError("INVALID_WEAPON_GRANT", "loot weapon grant is malformed");
+    }
+    const existing = currentOwnership.weaponInstances.find((item) => item.instanceId === grant.instanceId);
+    if (existing) {
+      if (existing.definitionId !== grant.definitionId || stableHash(existing.rolledAffixes) !== stableHash(grant.rolledAffixes ?? [])) {
+        throw new LoadoutCommandError("WEAPON_GRANT_CONFLICT", "weapon grant instance already exists with different content");
+      }
+      if (equippedWeaponInstanceId !== existing.instanceId) {
+        const targetLoadout = weaponLoadouts.find((item) => item.weaponInstanceId === existing.instanceId);
+        currentOwnership = cloneOwnership(currentOwnership, targetLoadout); equippedWeaponInstanceId = existing.instanceId;
+        const rebuilt = rebuild(currentOwnership); currentCompileInput = rebuilt.compileInput; currentBuild = rebuilt.compiledBuild; version += 1;
+      }
+      return snapshot();
+    }
+    const definition = currentOwnership.registry.weapons[grant.definitionId];
+    if (!definition) throw new LoadoutCommandError("UNKNOWN_WEAPON_DEFINITION", "weapon definition does not exist");
+    const rolledIds = grant.rolledWeaponSkillDefinitionIds ?? [];
+    if (rolledIds.some((id) => !definition.weaponSkillPoolDefinitionIds.includes(id))) {
+      throw new LoadoutCommandError("INVALID_WEAPON_SKILL_ROLL", "rolled weapon skill is outside the weapon server pool");
+    }
+    const gift = grant.grantedSocketedSkillCard ?? null;
+    if (gift) {
+      const skillDefinition = currentOwnership.registry.skills[gift.definitionId];
+      if (!skillDefinition || skillDefinition.sourceType !== "skill_card" || !definition.allowedSkillCardDefinitionIds.includes(gift.definitionId)) {
+        throw new LoadoutCommandError("INVALID_GIFTED_SKILL", "gifted skill is outside the weapon skill-card pool");
+      }
+      if (!Number.isInteger(gift.socketIndex) || gift.socketIndex < 0 || gift.socketIndex >= grant.skillCardSocketCount) {
+        throw new LoadoutCommandError("INVALID_GIFTED_SKILL_SOCKET", "gifted skill targets a locked socket");
+      }
+    }
+    const additionalItems = 1 + (gift ? 1 : 0);
+    const totalItems = currentOwnership.weaponInstances.length + currentOwnership.skillCardInstances.length + currentOwnership.supportCardInstances.length;
+    if (totalItems + additionalItems > maxInventoryItems) throw new LoadoutCommandError("INVENTORY_LIMIT_EXCEEDED", "loadout inventory limit reached");
+    let weapon;
+    try {
+      weapon = createWeaponInstance({
+        instanceId: grant.instanceId,
+        definitionId: definition.id,
+        rolledAffixes: grant.rolledAffixes ?? [],
+        rolledWeaponSkillDefinitionIds: rolledIds,
+        skillCardSocketCount: grant.skillCardSocketCount,
+        supportSocketsPerSkill: grant.supportSocketsPerSkill,
+      });
+    } catch (error) {
+      throw new LoadoutCommandError("INVALID_WEAPON_GRANT", error.message);
+    }
+    const nextSkills = [...currentOwnership.skillCardInstances];
+    const skillSockets = Array(5).fill(null);
+    if (gift) {
+      const giftInstance = createSkillCardInstance({ instanceId: gift.instanceId, definitionId: gift.definitionId, level: gift.skillLevel });
+      nextSkills.push(giftInstance); skillSockets[gift.socketIndex] = giftInstance.instanceId;
+    }
+    const generatedLoadout = createWeaponLoadout({
+      weaponInstanceId: weapon.instanceId,
+      skillSockets,
+      masteryAllocation: createMasteryAllocation({
+        boardDefinitionId: definition.masteryBoardDefinitionId,
+        nodeRanks: Object.fromEntries((config.build?.defaultMasteryNodeIds ?? []).map((nodeId) => [nodeId, 1])),
+        nodeChoices: config.build?.defaultMasteryNodeChoices ?? {},
+      }),
+    });
+    const nextOwnership = cloneOwnership(currentOwnership, generatedLoadout, {
+      weaponInstances: [...currentOwnership.weaponInstances, weapon],
+      skillCardInstances: nextSkills,
+    });
+    const nextWeaponLoadouts = [...weaponLoadouts, generatedLoadout];
+    for (const loadout of nextWeaponLoadouts) assertValidWeaponLoadoutOwnership(cloneOwnership(nextOwnership, loadout), { maxSupportsPerSkill });
+    currentOwnership = nextOwnership; weaponLoadouts = nextWeaponLoadouts; equippedWeaponInstanceId = weapon.instanceId;
+    const rebuilt = rebuild(nextOwnership); currentCompileInput = rebuilt.compileInput; currentBuild = rebuilt.compiledBuild; version += 1;
+    return snapshot();
+  }
+
   function equipWeapon(command) {
     return execute("equip_weapon", command, ["weaponInstanceId"], () => {
       if (!currentOwnership.weaponInstances.some((item) => item.instanceId === command.weaponInstanceId)) {
@@ -428,7 +513,7 @@ export function createAuthoritativeLoadoutService(options) {
   const stats = () => Object.freeze({ idempotencyEntries: commandResults.size, maxCommandResults });
   return Object.freeze({
     snapshot, stats, grantTestItem, equipWeapon, unequipWeapon, equipSkill, unequipSkill, setSupport, setMasterySelection,
-    setSkillCardLevel, setSupportCardLevel, grantIdentifiedSkillCard,
+    setSkillCardLevel, setSupportCardLevel, grantIdentifiedSkillCard, grantLootWeapon,
     setCharacterStatSnapshot,
   });
 }

@@ -239,12 +239,16 @@ export function createWeaponInstance(input) {
     "WeaponInstance.rolledWeaponSkillDefinitionIds",
     MAX_ROLLED_WEAPON_SKILLS,
   );
+  assertInteger(input.skillCardSocketCount ?? WEAPON_SKILL_SOCKET_COUNT, "WeaponInstance.skillCardSocketCount", 1, WEAPON_SKILL_SOCKET_COUNT);
+  assertInteger(input.supportSocketsPerSkill ?? 3, "WeaponInstance.supportSocketsPerSkill", 0, 3);
   return deepFreeze({
     kind: "WeaponInstance",
     instanceId: input.instanceId,
     definitionId: input.definitionId,
     rolledAffixes: clone(input.rolledAffixes ?? []),
     rolledWeaponSkillDefinitionIds: [...rolledWeaponSkillDefinitionIds],
+    skillCardSocketCount: input.skillCardSocketCount ?? WEAPON_SKILL_SOCKET_COUNT,
+    supportSocketsPerSkill: input.supportSocketsPerSkill ?? 3,
   });
 }
 

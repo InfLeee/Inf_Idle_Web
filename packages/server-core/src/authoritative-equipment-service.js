@@ -37,6 +37,7 @@ export function createAuthoritativeEquipmentService(options = {}) {
   }
 
   function grantDrop(input) { return command("grant_drop", input, ["monsterLevel", "mapId", "encounterId", "slot", "seed", "highAttribute"], () => { if (items.length >= maximumEquipmentItems) throw new EquipmentCommandError("EQUIPMENT_INVENTORY_FULL", "equipment inventory is full"); const generated = generateEquipmentDrop(input); if (items.some((item) => item.instanceId === generated.instanceId)) throw new EquipmentCommandError("DUPLICATE_DROP", "drop seed already granted"); items.push(generated); }); }
+  function grantValidationWeapon(input) { return command("grant_validation_weapon", input, ["monsterLevel", "seed"], () => { if (items.length >= maximumEquipmentItems) throw new EquipmentCommandError("EQUIPMENT_INVENTORY_FULL", "equipment inventory is full"); const generated = generateMonsterLoot({ monsterLevel: input.monsterLevel, seed: input.seed, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: ITEM_RARITY.RARE }); if (items.some((item) => item.instanceId === generated.instanceId)) throw new EquipmentCommandError("DUPLICATE_DROP", "drop seed already granted"); items.push({ ...generated, acquiredOrder: acquisitionSerial + 1 }); acquisitionSerial += 1; return generated; }, (state, generated) => Object.freeze({ snapshot: state, item: generated })); }
 
   function rollMonsterLoot(input) { return command("roll_monster_loot", input, ["monsterLevel", "mapId", "encounterId", "monsterId", "seed"], () => {
     if (pendingDrops.length >= maximumPendingDrops) throw new EquipmentCommandError("GROUND_LOOT_LIMIT_EXCEEDED", "map ground loot queue is full");
@@ -87,10 +88,33 @@ export function createAuthoritativeEquipmentService(options = {}) {
     }, (state, grant) => Object.freeze({ snapshot: state, grant }));
   }
 
+  function authorizeWeaponGrant(input) {
+    return command("authorize_weapon_grant", input, ["instanceId"], () => {
+      const index = items.findIndex((entry) => entry.instanceId === input.instanceId);
+      if (index < 0 || items[index].category !== ITEM_CATEGORY.WEAPON) throw new EquipmentCommandError("WEAPON_ITEM_NOT_OWNED", "loot weapon is not owned");
+      const item = items[index];
+      if (item.subtype !== "two_handed_sword") throw new EquipmentCommandError("WEAPON_TYPE_NOT_IMPLEMENTED", "this weapon type has no formal mastery/loadout definition yet");
+      const grant = Object.freeze({
+        kind: "LootWeaponGrant",
+        grantId: `weapon-grant-${stableHash({ instanceId: item.instanceId, itemVersion: item.version }).slice(0, 16)}`,
+        sourceItemInstanceId: item.instanceId,
+        instanceId: `domain-${item.instanceId}`,
+        definitionId: "two_handed_sword",
+        rolledAffixes: [...(item.baseStats ?? []), ...(item.affixes ?? [])],
+        rolledWeaponSkillDefinitionIds: item.rolledWeaponSkillDefinitionIds ?? [],
+        skillCardSocketCount: item.skillCardSocketCount,
+        supportSocketsPerSkill: item.supportSocketsPerSkill,
+        grantedSocketedSkillCard: item.grantedSocketedSkillCard,
+      });
+      items[index] = { ...item, loadoutBound: true, loadoutWeaponInstanceId: grant.instanceId };
+      return grant;
+    }, (state, grant) => Object.freeze({ snapshot: state, grant }));
+  }
+
   function discard(input) { return command("discard", input, ["instanceId"], () => {
     const index = items.findIndex((entry) => entry.instanceId === input.instanceId);
     if (index < 0) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned");
-    if (Object.values(slots).includes(input.instanceId)) throw new EquipmentCommandError("EQUIPPED_ITEM_LOCKED", "equipped item must be unequipped first");
+    if (Object.values(slots).includes(input.instanceId) || items[index].loadoutBound) throw new EquipmentCommandError("EQUIPPED_ITEM_LOCKED", "equipped or loadout-bound item must be unequipped first");
     items.splice(index, 1);
   }); }
 
@@ -114,7 +138,7 @@ export function createAuthoritativeEquipmentService(options = {}) {
     const filter = normalizeSaleFilter(input?.filter);
     return command("sell_items", input, ["filter"], () => {
       const equipped = new Set(Object.values(slots).filter(Boolean));
-      const sold = items.filter((item) => !equipped.has(item.instanceId) && itemMatchesSaleFilter(item, filter));
+      const sold = items.filter((item) => !equipped.has(item.instanceId) && !item.loadoutBound && itemMatchesSaleFilter(item, filter));
       if (!sold.length) throw new EquipmentCommandError("NO_ITEMS_MATCH_SALE_FILTER", "no unequipped items match the sale filter");
       const soldIds = new Set(sold.map((item) => item.instanceId));
       items = items.filter((item) => !soldIds.has(item.instanceId));
@@ -124,5 +148,5 @@ export function createAuthoritativeEquipmentService(options = {}) {
 
   function equip(input) { return command("equip", input, ["instanceId", "slot"], () => { const item = items.find((entry) => entry.instanceId === input.instanceId); if (!item) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned"); if (!EQUIPMENT_SLOTS.includes(input.slot) || item.slot !== input.slot) throw new EquipmentCommandError("SLOT_MISMATCH", "item cannot be equipped in this slot"); slots[input.slot] = item.instanceId; }); }
   function unequip(input) { return command("unequip", input, ["slot"], () => { if (!EQUIPMENT_SLOTS.includes(input.slot)) throw new EquipmentCommandError("UNKNOWN_SLOT", "unknown equipment slot"); slots[input.slot] = null; }); }
-  return Object.freeze({ snapshot, grantDrop, rollMonsterLoot, collectDrop, identifySkillGem, discard, sellItems, equip, unequip });
+  return Object.freeze({ snapshot, grantDrop, grantValidationWeapon, rollMonsterLoot, collectDrop, identifySkillGem, authorizeWeaponGrant, discard, sellItems, equip, unequip });
 }

@@ -89,7 +89,7 @@ function normalizeAutoPolicy(value) {
 }
 
 function normalizeWeaponInstance(value, index) {
-  assertExactFields(value, ["kind", "instanceId", "definitionId", "rolledAffixes", "rolledWeaponSkillDefinitionIds"], "weaponInstances[" + index + "]");
+  assertExactFields(value, ["kind", "instanceId", "definitionId", "rolledAffixes", "rolledWeaponSkillDefinitionIds", "skillCardSocketCount", "supportSocketsPerSkill"], "weaponInstances[" + index + "]");
   if (value.kind !== "WeaponInstance") fail("INSTANCE_KIND_MISMATCH", "weapon instance kind is invalid", { index });
   return createWeaponInstance(value);
 }

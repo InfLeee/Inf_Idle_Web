@@ -24,7 +24,7 @@ const definitions = [
   { id: "mastery", name: "武器精通", hint: "节点与效果", nodes: [masteryGroup] },
   { id: "timing", name: "时序测试", hint: "吟唱与引导", nodes: [$("timingLab")] },
   { id: "numerics", name: "数值实验室", hint: "M3 可验收", nodes: [$("m3NumericLab")] },
-  { id: "itemization", name: "掉落背包", hint: "M4B 可验收", nodes: [$("m4ItemizationLab")] },
+  { id: "itemization", name: "掉落背包", hint: "M4C 可验收", nodes: [$("m4ItemizationLab")] },
 ];
 
 const workspace = document.createElement("section");
