@@ -7,7 +7,7 @@ import {
   resetPrimaryStats,
   subscribeLoadoutSnapshot,
   unallocatePrimaryStat,
-} from "./loadout-authority.js?v=mastery-stats-2";
+} from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
 const PRIMARY_NAMES = Object.freeze({ str: "力量", int: "智力", agi: "敏捷", dex: "灵巧", con: "体质", luk: "幸运" });

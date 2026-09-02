@@ -2,7 +2,7 @@ import {
   currentLoadoutSnapshot,
   loadoutAuthority,
   subscribeLoadoutSnapshot,
-} from "./loadout-authority.js?v=mastery-stats-2";
+} from "./loadout-authority.js?v=m4c-closure-3";
 import {
   advanceCompiledCombat,
   advanceEncounterWorld,
@@ -16,7 +16,7 @@ import {
   encounterLivingCapacity,
   restartEncounterWorld,
   TARGET_SELECTOR_KIND,
-} from "../../packages/combat-runtime/src/index.js?v=m2a-encounter-4";
+} from "../../packages/combat-runtime/src/index.js?v=m4c-closure-3";
 import {
   RUNTIME_RETENTION,
   clearTransientNodes,
@@ -28,6 +28,7 @@ import {
   trimOldestChildren,
 } from "./runtime-retention.js?v=performance-1";
 import { createSeededRng } from "../../packages/combat-protocol/src/settlement.js";
+import { createProjectileVolley, resolveProjectileVolleyCollisions } from "../../packages/combat-protocol/src/projectile-volley.js";
 import { DAMAGE_TYPES, settleDirectDamage } from "../../packages/combat-numerics/src/index.js";
 import { createM3MonsterTemplate } from "../../packages/game-config/m3-monster-templates.js";
 
@@ -253,6 +254,7 @@ function reset() {
     : '<div class="empty-log"><strong>当前没有可运行的战斗构筑</strong><span>从背包将武器拖入独立武器栏后，战斗会自动开始。</span></div>';
   $("radarUnits").replaceChildren();
   clearTransientNodes($("radarFloats"));
+  clearTransientNodes($("radarProjectiles"));
   clearTransientNodes($("playerFloats"));
   $("startBtn").textContent = "开始战斗";
   $("logSummary").textContent = "等待自动扫描";
@@ -475,6 +477,18 @@ function spawnRadarFloat(monster, text, kind = "damage") {
   mountTransientNode($("radarFloats"), node);
 }
 
+function spawnProjectileVolley(collision) {
+  for (const projectile of collision.projectiles) {
+    const node = document.createElement("span");
+    node.className = `radar-projectile ${projectile.state}`;
+    node.style.setProperty("--projectile-angle", `${projectile.directionAngleDeg}deg`);
+    node.style.setProperty("--projectile-distance", `${projectile.distance / RADAR_RADIUS_M * 42}%`);
+    node.style.setProperty("--projectile-duration", `${Math.max(70, projectile.distance / 24 * 1000 / speed)}ms`);
+    node.innerHTML = "<i></i>";
+    mountTransientNode($("radarProjectiles"), node, { maximum: 96, fallbackTtlMs: 1_600 });
+  }
+}
+
 function flashMonster(monsterId) {
   const node = $("radarUnits").querySelector(`[data-monster-id="${monsterId}"]`);
   if (!node) return;
@@ -546,6 +560,7 @@ function updatePlayerLife() {
   monsters = [];
   $("radarUnits").replaceChildren();
   clearTransientNodes($("radarFloats"));
+  clearTransientNodes($("radarProjectiles"));
   const healed = healPlayer(playerMaxHp, { label: "复活治疗", detail: "恢复全部生命", suffix: "复活" });
   addLog({ at: simTime }, "玩家复活", "生命恢复、清空雷达并重新扫描", "自身", `+${Math.round(healed)}`, "state");
   addLog({ at: simTime }, "遭遇重置", `已清除 ${restarted.events[0].removedMonsterCount} 个残留目标`, "草原视域", `${ENCOUNTER_DEFAULTS.initialEncounterDelayMs / 1000}s 后刷新`, "system");
@@ -585,6 +600,7 @@ function runtimeSnapshot() {
     pendingEvents: simulation.log.length - eventIndex,
     radarFloatNodes: $("radarFloats").children.length,
     playerFloatNodes: $("playerFloats").children.length,
+    projectileNodes: $("radarProjectiles").children.length,
     monsterRecords: monsters.length,
     damageCount: damageStats.count,
     damageAggregateFields: Object.keys(damageStats).length,
@@ -603,6 +619,7 @@ function updateRuntimeHealth() {
     "运行缓存 · 日志 " + snapshot.logRows + "/" + RUNTIME_RETENTION.maxLogRows +
     " · 队列 " + snapshot.pendingEvents +
     " · 跳字 " + (snapshot.radarFloatNodes + snapshot.playerFloatNodes) +
+    " · 投射物 " + snapshot.projectileNodes +
     " · 受管节点 " + snapshot.trackedTransientNodes +
     " · 动画循环 " + snapshot.activeAnimationLoops + "/1";
 }
@@ -613,6 +630,7 @@ function runRuntimeCleanup(options = {}) {
   if (manual) {
     clearTransientNodes($("radarFloats"));
     clearTransientNodes($("playerFloats"));
+    clearTransientNodes($("radarProjectiles"));
   }
   compactTimeline(manual);
   cleanupCount += 1;
@@ -685,6 +703,42 @@ function applyDamage(event, skillName, multiplier, hitCount, monster) {
   if (monster.hp <= 0) defeatMonster(monster, event);
 }
 
+function resolveProjectileDamage(event, primary, targets) {
+  const volley = createProjectileVolley({
+    projectileCount: event.projectileCount ?? event.projectileVolley?.projectileCount ?? 1,
+    aimAngleDeg: primary.angle,
+    spacingDeg: event.projectileVolley?.spacingDeg,
+    sameVolleyHitLimitPerTarget: event.projectileVolley?.sameVolleyHitLimitPerTarget ?? 1,
+  });
+  const collision = resolveProjectileVolleyCollisions({
+    volley,
+    origin: { x: 0, y: 0 },
+    maximumDistance: RADAR_RADIUS_M,
+    targets: targets.map((monster) => {
+      const radians = monster.angle * Math.PI / 180;
+      return {
+        targetId: monster.id,
+        x: Math.cos(radians) * monster.distance,
+        y: Math.sin(radians) * monster.distance,
+        radius: 1.15,
+      };
+    }),
+  });
+  spawnProjectileVolley(collision);
+  const hitsByTarget = new Map();
+  for (const projectile of collision.effectiveHits) {
+    hitsByTarget.set(projectile.targetId, (hitsByTarget.get(projectile.targetId) ?? 0) + 1);
+  }
+  for (const [targetId, projectileHits] of hitsByTarget) {
+    const monster = targets.find((entry) => String(entry.id) === String(targetId));
+    if (monster) applyDamage(event, event.skillName, event.multiplier, Math.max(1, event.hitCount ?? 1) * projectileHits, monster);
+  }
+  if (!collision.effectiveHits.length) {
+    addLog(event, `${event.skillName}未命中`, `${volley.projectileCount}枚齐射未与目标碰撞`, primary.name, "MISS", "state");
+  }
+  return collision;
+}
+
 function processEvent(event) {
   if (playerState === "dead" && event.type !== "radar") return;
   if (event.type === "radar") {
@@ -696,6 +750,11 @@ function processEvent(event) {
     const engaged = engagedMonsters();
     const primary = primaryTarget();
     if (!primary) return;
+    if (event.skillTags?.includes("PROJECTILE") && event.projectileVolley) {
+      resolveProjectileDamage(event, primary, engaged);
+      flash(event.skillDefinitionId);
+      return;
+    }
     const area = event.targeting.kind === TARGET_SELECTOR_KIND.ENEMIES_IN_RADIUS ||
       event.targeting.kind === TARGET_SELECTOR_KIND.ENEMIES_AROUND_SELF;
     const maxTargets = event.targeting.maxTargets ?? engaged.length;

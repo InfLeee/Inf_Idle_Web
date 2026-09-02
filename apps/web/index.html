@@ -5,10 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="双手剑 A1 敏捷骑士实时战斗日志">
   <title>双手剑 · 实时战斗日志</title>
-  <link rel="stylesheet" href="./theme-ro.css?v=combat-floats-1">
+  <link rel="stylesheet" href="./theme-ro.css?v=m4c-closure-3">
   <link rel="stylesheet" href="./character-stats-v2.css?v=mastery-stats-2">
   <link rel="stylesheet" href="./m3-numeric-lab.css?v=m3d-1">
-  <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-3">
+  <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-closure-3">
+  <link rel="stylesheet" href="./m4-crafting-lab.css?v=m4d-3">
+  <link rel="stylesheet" href="./projectile-volley-lab.css?v=m4c-closure-3">
 </head>
 <body>
   <div class="app-shell">
@@ -21,6 +23,7 @@
         <button id="masteryNavBtn" type="button">精通盘<small>可验收</small></button>
         <button id="partyNavBtn" type="button">四人队伍<small>V0</small></button>
         <button type="button" disabled>技能构筑<small>后续</small></button>
+        <button id="testCenterNavBtn" type="button">测试中心<small>集中验收</small></button>
       </nav>
       <div class="sidebar-build">
         <small>当前武器</small><strong>双手剑</strong><span>A1 敏捷骑士</span>
@@ -43,6 +46,7 @@
             <div class="radar-head"><span>草原战斗雷达 <small id="waveText">第 1 波</small></span><b id="encounterPhase">扫描中</b></div>
             <div class="radar" id="radar">
               <div class="radar-floats" id="radarFloats"></div>
+              <div class="radar-projectiles" id="radarProjectiles" aria-hidden="true"></div>
               <i class="radar-sweep"></i>
               <i class="radar-ring ring-1"></i><i class="radar-ring ring-2"></i><i class="radar-ring ring-3"></i>
               <i class="future-range"></i><i class="attack-range" id="attackRange"></i>
@@ -348,6 +352,16 @@
           <button id="m4SimulateWeapon" type="button">生成 M4C 测试双手剑</button>
         </div>
         <p class="m4-mock-note">M4C 正式规则：物品等级等于怪物等级；基底和词缀阶级受物等门槛限制；T1 为最高阶；魔法最多 1 前缀 + 1 后缀，稀有最多 3 前缀 + 3 后缀；同词缀组互斥。掉落武器可直接生成正式 WeaponLoadout 并实时进入战斗。</p>
+        <section class="m4-closure-proof" aria-label="M4C成长闭环状态">
+          <header><div><small>M4C CLOSURE · FORMAL PIPELINE</small><h3>M4C 成长闭环状态</h3></div><b id="m4ClosureState">5 条正式链路检查中</b></header>
+          <div>
+            <article><small>等级与掉落</small><strong id="m4DropRuleProof">等待地图等级</strong><span>怪物等级决定物品等级与基底准入</span></article>
+            <article><small>随机词缀池</small><strong id="m4AffixPoolProof">等待词缀目录</strong><span>前后缀、T级、权重与词缀组互斥</span></article>
+            <article><small>装备属性</small><strong id="m4EquippedStatProof">尚未穿戴装备</strong><span>服务器聚合后进入角色二级属性</span></article>
+            <article><small>技能 TAG 词缀</small><strong id="m4SkillAffixProof">当前未激活</strong><span>技能等级与投射物数量按最终 TAG 生效</span></article>
+            <article><small>正式战斗 Runtime</small><strong id="m4ProjectileRuntimeProof">等待投射物技能</strong><span>齐射、碰撞与单目标上限共用正式协议</span></article>
+          </div>
+        </section>
         <section class="m4-loot-status"><div><small>地图待拾取</small><strong id="m4PendingDrops">0 / 2,000 件</strong></div><div><small>拾取状态</small><strong id="m4LatestPickup">等待怪物掉落</strong></div><ol id="m4PickupFeed"><li>开始战斗后，真实击杀会生成掉落</li></ol></section>
         <div class="m4-content-grid">
           <section><h3>角色装备栏 <small>4 防具 + 3 首饰</small></h3><div id="m4EquipmentSlots" class="m4-slots"></div></section>
@@ -365,6 +379,20 @@
         </div>
         <section class="m4-pickup-log"><header><div><b>拾取日志</b><small>最多保留最近 80 条，不随战斗日志无限增长</small></div><span id="m4PickupLogCount">0 条</span></header><div class="m4-pickup-log-head"><span>时间</span><span>品质</span><span>类型</span><span>物品</span><span>等级</span></div><div id="m4PickupLog"><p>等待第一件物品汇聚入包</p></div></section>
         <div class="m4-proof"><article><small>装备属性来源</small><strong id="m4BonusProof">尚未穿戴装备</strong></article><article><small>构筑同步</small><strong id="m4BuildProof">等待穿戴</strong></article><button id="m4ForgeryTest" type="button">伪造词缀包测试</button></div>
+      </section>
+
+      <section class="m4-crafting-lab" id="m4CraftingLab" aria-label="M4D装备打造">
+        <header class="m4d-head"><div><small>M4D · SERVER AUTHORITATIVE CRAFTING</small><h2>装备打造</h2><p>选择目标装备 → 选择预兆（可选）→ 选择通货 → 服务器校验并生成新版本</p></div><div><b id="m4dAuthorityState">等待装备权威服务</b><strong id="m4dCraftResult">尚未进行打造</strong><section class="m4d-test-grants" style="display:flex;gap:5px;align-items:center;justify-content:flex-end"><span style="font-size:8px;color:#758273">公开测试补给</span><button id="m4dGrantSelectedCurrency" type="button" style="padding:5px 7px;border:1px solid #b9d5b3;border-radius:7px;background:#fff;color:#4d7d53">当前通货 +100</button><button id="m4dGrantAllCurrencies" type="button" style="padding:5px 7px;border:0;border-radius:7px;background:#78aa72;color:#fff">全部可用通货 +100</button></section></div></header>
+        <div class="m4d-layout">
+          <aside class="m4d-target-panel"><header><div><small>CRAFT TARGET</small><h3>选择目标装备</h3></div><span id="m4dTargetCount">0 件</span></header><div id="m4dTargetFilters" class="m4d-target-filters"><button class="active" data-craft-target="all">全部</button><button data-craft-target="weapon">武器</button><button data-craft-target="equipment">防具首饰</button></div><div id="m4dTargetList" class="m4d-target-list"></div></aside>
+          <main class="m4d-workbench">
+            <section id="m4dItemPreview" class="m4d-item-preview"><div class="empty"><b>尚未选择目标装备</b><span>从左侧装备列表选择一件物品</span></div></section>
+            <section class="m4d-selection-flow"><article><small>步骤 1 · 预兆</small><strong id="m4dSelectedCatalyst">不使用预兆</strong><button id="m4dClearCatalyst" type="button">清除</button></article><i>→</i><article><small>步骤 2 · 通货</small><strong id="m4dSelectedCurrency">尚未选择</strong></article><i>→</i><button id="m4dApplyCraft" type="button" disabled>服务器确认打造</button></section>
+            <section class="m4d-currency-panel"><header><div><small>POE2 CURRENCY CATALOG</small><h3>通货功能库</h3></div><span>悬停查看功能 · 数量由服务器快照提供</span></header><nav id="m4dCurrencyTabs" class="m4d-currency-tabs"></nav><div id="m4dCurrencyGrid" class="m4d-currency-grid"></div></section>
+          </main>
+          <aside class="m4d-affix-panel"><header><div><small>MODIFIERS CALC</small><h3>可出现属性统计</h3></div><span id="m4dAffixSummary">等待装备</span></header><div class="m4d-affix-legend"><span>P 前缀</span><span>S 后缀</span><span>T1 最高阶</span><span>权重越高越常见</span></div><div id="m4dAffixTable" class="m4d-affix-table"><p>选择装备后，按物品等级列出完整可用词缀和各阶级范围。</p></div></aside>
+        </div>
+        <footer class="m4d-proof"><span>客户端只提交：目标实例 ID、通货 ID、预兆 ID</span><span>服务器决定：适用性、扣除数量、随机词缀、Roll 值与装备版本</span><b>不接受客户端提交最终属性</b></footer>
       </section>
 
       <section class="m3-numeric-lab" id="m3NumericLab" aria-label="M3战斗数值实验室">
@@ -397,16 +425,47 @@
         <section class="m3-acceptance"><header><div><b>M3 自动验收用例</b><small>最终人工验收前的快速自检</small></div><button id="m3RunAcceptance" type="button">运行全部用例</button></header><ol id="m3AcceptanceCases"></ol></section>
       </section>
 
+      <section class="projectile-volley-lab" id="projectileVolleyLab" aria-label="投射物数量与轴对称轨迹测试场">
+        <header class="volley-lab-head">
+          <div><small>PROJECTILE VOLLEY V1 · RUNTIME PROTOCOL</small><h2>投射物数量与轨迹测试场</h2><p>所有轨迹直接使用 projectile-volley-v1；拖动目标后重新齐射，可检查奇偶数量、夹角和单目标命中上限。</p></div>
+          <div><b id="volleyProtocolState">轴对称 · 同帧齐射</b><strong id="volleyTestState">等待发射</strong></div>
+        </header>
+        <div class="volley-lab-grid">
+          <section class="volley-stage-card">
+            <div class="volley-stage-toolbar"><span>拖动右侧目标改变面向方向</span><b id="volleyEmitTime">尚未生成齐射</b></div>
+            <svg id="volleyStage" class="volley-stage" viewBox="0 0 720 420" role="img" aria-label="投射物轨迹预览">
+              <defs><filter id="volleyGlow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+              <g id="volleyGrid"></g><g id="volleyTrajectories"></g><g id="volleyActors"></g>
+            </svg>
+            <div class="volley-legend"><span><i class="axis"></i>目标中轴</span><span><i class="path"></i>轨迹</span><span><i class="hit"></i>本组有效命中</span><span><i class="pass"></i>同目标穿过</span></div>
+          </section>
+          <aside class="volley-control-card">
+            <label><span>投射物数量 <b id="volleyCountLabel">2</b></span><input id="volleyCount" type="range" min="1" max="16" value="2"></label>
+            <div id="volleyPresets" class="volley-presets"><button data-volley-count="1">1</button><button class="active" data-volley-count="2">2</button><button data-volley-count="3">3</button><button data-volley-count="5">5</button><button data-volley-count="8">8</button><button data-volley-count="16">16</button></div>
+            <button id="volleyFire" class="volley-fire" type="button">发射一组投射物</button>
+            <label class="volley-auto"><input id="volleyAutoFire" type="checkbox" checked><span>修改数量或目标位置时自动发射</span></label>
+            <dl class="volley-metrics"><div><dt>相邻夹角</dt><dd id="volleySpacing">6°</dd></div><div><dt>总扇面</dt><dd id="volleyArc">6°</dd></div><div><dt>生成方式</dt><dd id="volleySimultaneous">同帧 ×2</dd></div><div><dt>目标命中</dt><dd id="volleyHitCount">0 / 1</dd></div></dl>
+          </aside>
+        </div>
+        <div class="volley-proof-grid">
+          <article><small>服务器相对角度序列</small><code id="volleyAngles">[-3°, +3°]</code></article>
+          <article><small>命中约束</small><strong id="volleyHitRule">默认：同一齐射 · 同目标最多 1 次</strong><span id="volleyGeometryRule">没有保底命中；只有轨迹与目标碰撞体相交才会结算。技能主体可明确覆盖默认上限。</span></article>
+          <article><small>验收结论</small><strong id="volleySymmetryProof">轴对称通过</strong><span id="volleyArcProof">总扇面未超过 180°</span></article>
+        </div>
+      </section>
+
     </main>
   </div>
-  <script type="module" src="./battle-ro.js?v=m4c-3"></script>
+  <script type="module" src="./battle-ro.js?v=m4c-closure-3"></script>
   <script type="module" src="./authority-encounter-lab.js?v=m2c-replay-1"></script>
   <script type="module" src="./character-stats-lab-v2.js?v=mastery-stats-2"></script>
   <script type="module" src="./party-lab.js?v=party-combat-1"></script>
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
   <script type="module" src="./loadout-lab.js?v=hot-swap-1"></script>
   <script type="module" src="./m3-numeric-lab.js?v=m3d-1"></script>
-  <script type="module" src="./m4-itemization-lab.js?v=m4c-3"></script>
-  <script type="module" src="./workspace-shell.js?v=m4c-3"></script>
+  <script type="module" src="./m4-itemization-lab.js?v=m4d-5"></script>
+  <script type="module" src="./m4-crafting-lab.js?v=m4d-5"></script>
+  <script type="module" src="./projectile-volley-lab.js?v=m4c-closure-3"></script>
+  <script type="module" src="./workspace-shell.js?v=m4d-1"></script>
 </body>
 </html>

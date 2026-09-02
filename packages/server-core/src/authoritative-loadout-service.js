@@ -86,12 +86,13 @@ export function createAuthoritativeLoadoutService(options) {
   let currentCompileInput;
   let currentBuild;
   let characterStatSnapshot = options.characterStatSnapshot ?? null;
+  let equipmentSkillModifiers = structuredClone(options.equipmentSkillModifiers ?? []);
 
   function rebuild(nextOwnership) {
     assertValidWeaponLoadoutOwnership(nextOwnership, { maxSupportsPerSkill });
     const combatReady = nextOwnership.loadout.skillSockets.some(Boolean);
     const compileInput = combatReady
-      ? assembleTwoHandedSwordA1CompileInput(config, nextOwnership, { maxSupportsPerSkill, characterStatSnapshot })
+      ? assembleTwoHandedSwordA1CompileInput(config, nextOwnership, { maxSupportsPerSkill, characterStatSnapshot, equipmentSkillModifiers })
       : null;
     const compiledBuild = compileInput ? compileActionBuild(compileInput) : null;
     return { combatReady, compileInput, compiledBuild };
@@ -505,6 +506,18 @@ export function createAuthoritativeLoadoutService(options) {
     return snapshot();
   }
 
+  function setEquipmentSkillModifiers(nextModifiers = []) {
+    if (!Array.isArray(nextModifiers)) throw new TypeError("equipmentSkillModifiers must be an array");
+    equipmentSkillModifiers = structuredClone(nextModifiers);
+    const rebuilt = equippedWeaponInstanceId === null
+      ? { compileInput: null, compiledBuild: null }
+      : rebuild(currentOwnership);
+    currentCompileInput = rebuilt.compileInput;
+    currentBuild = rebuilt.compiledBuild;
+    version += 1;
+    return snapshot();
+  }
+
   const initial = equippedWeaponInstanceId === null
     ? { compileInput: null, compiledBuild: null }
     : rebuild(currentOwnership);
@@ -514,6 +527,6 @@ export function createAuthoritativeLoadoutService(options) {
   return Object.freeze({
     snapshot, stats, grantTestItem, equipWeapon, unequipWeapon, equipSkill, unequipSkill, setSupport, setMasterySelection,
     setSkillCardLevel, setSupportCardLevel, grantIdentifiedSkillCard, grantLootWeapon,
-    setCharacterStatSnapshot,
+    setCharacterStatSnapshot, setEquipmentSkillModifiers,
   });
 }

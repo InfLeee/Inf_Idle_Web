@@ -1,7 +1,7 @@
 import { COMBAT_NUMERICS_SCHEMA_VERSION } from "../../packages/combat-numerics/src/index.js";
 import { compareM3DamageBatches, simulateM3DamageBatch } from "../../packages/combat-numerics/src/lab.js";
 import { createM3MonsterTemplate } from "../../packages/game-config/m3-monster-templates.js";
-import { currentLoadoutSnapshot, loadoutAuthority, publishLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=mastery-stats-2";
+import { currentLoadoutSnapshot, loadoutAuthority, publishLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
 const number = (value, digits = 1) => Number(value).toLocaleString("zh-CN", { maximumFractionDigits: digits });

@@ -72,6 +72,7 @@ export function assembleTwoHandedSwordA1CompileInput(config, ownershipInput, opt
     supportAssignments,
     masteryNodeIds: selectedMasteryNodeIds,
     characterStats,
+    equipmentSkillModifiers: options.equipmentSkillModifiers ?? [],
     buildMetadata: {
       weaponInstanceId: weapon.instanceId,
       activeResourceDefinitionIds,

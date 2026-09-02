@@ -1,9 +1,9 @@
-import { EQUIPMENT_SLOTS, ITEM_CATEGORY, MAP_LEVEL_MODE, RARITY_META, aggregateEquipmentBonuses, itemizationCatalog, resolveMonsterLevel } from "../../packages/itemization-core/src/index.js";
+import { CRAFTING_CURRENCIES, EQUIPMENT_SLOTS, ITEM_CATEGORY, MAP_LEVEL_MODE, RARITY_META, aggregateEquipmentBonuses, effectiveBaseStatsForItem, generateEquipmentDrop, generateMonsterLoot, itemizationCatalog, resolveMonsterLevel } from "../../packages/itemization-core/src/index.js";
 import { createAuthoritativeEquipmentService } from "../../packages/server-core/src/authoritative-equipment-service.js";
-import { acceptIdentifiedSkillCardGrant, acceptLootWeaponGrant, characterProgressionAuthority, commitCharacterProgression, currentLoadoutSnapshot } from "./loadout-authority.js?v=m4c-1";
+import { acceptIdentifiedSkillCardGrant, acceptLootWeaponGrant, characterProgressionAuthority, commitCharacterProgression, commitEquipmentSkillModifiers, currentLoadoutSnapshot } from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
-const STAT_LABELS = { physicalAttack: "物攻", magicAttack: "魔攻", maxHp: "生命", maxResource: "资源", physicalDefense: "物防", magicDefense: "魔防", accuracy: "命中", critRating: "暴击评级", attackSpeedRating: "攻速评级", movementSpeedRating: "遇敌移速" };
+const STAT_LABELS = { physicalAttack: "物理攻击", magicAttack: "魔法攻击", maxHp: "最大生命", maxResource: "最大资源", physicalDefense: "物理防御", magicDefense: "魔法防御", accuracy: "命中", critRating: "暴击评级", attackSpeedRating: "攻击速度评级", hasteRating: "施法加速评级", movementSpeedRating: "遇敌速度评级" };
 const CATEGORY_LABELS = { weapon: "武器", equipment: "装备", skill_card: "未鉴定技能宝石", currency: "通货" };
 const SUBTYPE_OPTIONS = { all: [["all", "全部类型"]], weapon: [["all", "全部武器"], ["two_handed_sword", "双手剑"], ["sword_shield", "盾剑"]], equipment: [["all", "全部部件"], ["armor", "四类防具"], ["accessory", "三类首饰"], ...Object.entries(itemizationCatalog.slotLabels)] };
 const SAVE_KEY = "inf-idle.m4c-backpack.v0";
@@ -11,22 +11,37 @@ const MAX_EQUIPMENT_ITEMS = 600;
 const MAX_VISIBLE_GROUND_LOOT = 160;
 const SKILL_DEFINITIONS = Object.values(currentLoadoutSnapshot().ownershipInput.registry.skills).filter((definition) => definition.sourceType === "skill_card");
 const SKILL_NAME_BY_ID = Object.fromEntries(Object.values(currentLoadoutSnapshot().ownershipInput.registry.skills).map((definition) => [definition.id, definition.name]));
-const EQUIPMENT_SERVICE_OPTIONS = { maximumEquipmentItems: MAX_EQUIPMENT_ITEMS, allowedSkillDefinitionIds: SKILL_DEFINITIONS.map((definition) => definition.id) };
+function t1CraftingFixtures() {
+  const definitions = [
+    generateMonsterLoot({ monsterLevel: 60, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "normal", seed: "m4d-t1-weapon-normal" }),
+    generateMonsterLoot({ monsterLevel: 60, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "rare", seed: "m4d-t1-weapon-rare" }),
+    ...EQUIPMENT_SLOTS.map((slot, index) => generateEquipmentDrop({ monsterLevel: 60, slot, rarity: index % 3 === 0 ? "normal" : index % 3 === 1 ? "magic" : "rare", seed: `m4d-t1-${slot}` })),
+  ];
+  return definitions.map((item, index) => ({ ...structuredClone(item), name: `${item.name} · T1测试`, testFixture: "t1_crafting", acquiredOrder: 900000 + index }));
+}
+const T1_CRAFTING_FIXTURES = t1CraftingFixtures();
+const EQUIPMENT_SERVICE_OPTIONS = { maximumEquipmentItems: MAX_EQUIPMENT_ITEMS, allowedSkillDefinitionIds: SKILL_DEFINITIONS.map((definition) => definition.id), allowTestCommands: true, items: T1_CRAFTING_FIXTURES };
 
 function restoreEquipmentService() {
   try {
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (!["m4b-backpack-save-v0", "m4b-backpack-save-v1", "m4b-backpack-save-v2"].includes(saved?.schemaVersion) || !Array.isArray(saved.items)) return createAuthoritativeEquipmentService(EQUIPMENT_SERVICE_OPTIONS);
+    if (!["m4b-backpack-save-v0", "m4b-backpack-save-v1", "m4b-backpack-save-v2", "m4d-crafting-save-v3"].includes(saved?.schemaVersion) || !Array.isArray(saved.items)) return createAuthoritativeEquipmentService(EQUIPMENT_SERVICE_OPTIONS);
     const stackByLevel = new Map((saved.skillCardStacks ?? []).map((stack) => [stack.skillLevel, structuredClone(stack)]));
     const items = [];
     for (const item of saved.items.slice(0, MAX_EQUIPMENT_ITEMS)) {
-      if (item.category !== ITEM_CATEGORY.SKILL_CARD) items.push(item);
+      if (item.category !== ITEM_CATEGORY.SKILL_CARD) {
+        const restored = structuredClone(item);
+        if (restored.category === ITEM_CATEGORY.WEAPON && !(restored.affixes ?? []).some((affix) => affix.operation === "grant_weapon_skills")) { restored.rolledWeaponSkills = []; restored.rolledWeaponSkillDefinitionIds = []; }
+        items.push(restored);
+      }
       else {
         const current = stackByLevel.get(item.skillLevel) ?? { kind: "UnidentifiedSkillGemStack", stackId: `uncut-skill-lv-${item.skillLevel}`, category: ITEM_CATEGORY.SKILL_CARD, subtype: "unidentified_skill_gem", name: "未鉴定技能宝石", icon: "✧", skillLevel: item.skillLevel, itemLevel: item.itemLevel, unidentified: true, quantity: 0, acquiredOrder: item.acquiredOrder ?? 0 };
         current.quantity += 1; stackByLevel.set(item.skillLevel, current);
       }
     }
-    return createAuthoritativeEquipmentService({ ...EQUIPMENT_SERVICE_OPTIONS, items, skillCardStacks: [...stackByLevel.values()], slots: saved.slots, acquisitionSerial: saved.acquisitionSerial, lootRollSerial: saved.lootRollSerial, gold: saved.gold ?? 0 });
+    const existingIds = new Set(items.map((item) => item.instanceId));
+    for (const fixture of T1_CRAFTING_FIXTURES) if (!existingIds.has(fixture.instanceId)) items.push(structuredClone(fixture));
+    return createAuthoritativeEquipmentService({ ...EQUIPMENT_SERVICE_OPTIONS, items, skillCardStacks: [...stackByLevel.values()], slots: saved.slots, acquisitionSerial: saved.acquisitionSerial, lootRollSerial: saved.lootRollSerial, craftSerial: saved.craftSerial, currencies: saved.currencies, gold: saved.gold ?? 0 });
   } catch { return createAuthoritativeEquipmentService(EQUIPMENT_SERVICE_OPTIONS); }
 }
 
@@ -39,8 +54,27 @@ if ($("m4ItemizationLab")) {
   const statLabel = (id) => STAT_LABELS[id] ?? id;
   const rarityLabel = (item) => item.unidentified ? "未鉴定" : (RARITY_META[item.rarity]?.name ?? item.rarity ?? "—");
   function monsterLevel() { return resolveMonsterLevel({ mode: $("m4MapMode").value, mapLevel: Number($("m4MapLevel").value), playerLevel: Number($("m4PlayerLevel").value) }); }
-  function persist(snapshot) { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ schemaVersion: "m4b-backpack-save-v2", items: snapshot.items, skillCardStacks: snapshot.skillCardStacks, slots: snapshot.slots, acquisitionSerial: snapshot.acquisitionSerial, lootRollSerial: snapshot.lootRollSerial, gold: snapshot.gold })); } catch { /* bounded authority remains usable */ } }
-  function syncCharacter(snapshot) { const activeWeaponId = currentLoadoutSnapshot().characterBuild.equippedWeaponInstanceId; const weaponItem = snapshot.items.find((item) => item.loadoutWeaponInstanceId === activeWeaponId) ?? null; const equippedGear = EQUIPMENT_SLOTS.map((slot) => snapshot.items.find((item) => item.instanceId === snapshot.slots[slot]) ?? null); const bonuses = aggregateEquipmentBonuses([...equippedGear, weaponItem]); const progression = characterProgressionAuthority.setAuthorityState({ bonuses }); const loadout = commitCharacterProgression(progression); persist(snapshot); $("m4BuildProof").textContent = loadout.compiledBuild ? `装备数值已进入战斗 · ${loadout.compiledBuild.buildHash.slice(0, 12)}` : "属性已同步 · 当前未装备可战斗武器"; }
+  function persist(snapshot) { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ schemaVersion: "m4d-crafting-save-v3", items: snapshot.items, skillCardStacks: snapshot.skillCardStacks, slots: snapshot.slots, acquisitionSerial: snapshot.acquisitionSerial, lootRollSerial: snapshot.lootRollSerial, craftSerial: snapshot.craftSerial, currencies: snapshot.currencies, gold: snapshot.gold })); } catch { /* bounded authority remains usable */ } }
+  function syncCharacter(snapshot) {
+    const activeWeaponId = currentLoadoutSnapshot().characterBuild.equippedWeaponInstanceId;
+    const weaponItem = snapshot.items.find((item) => item.loadoutWeaponInstanceId === activeWeaponId) ?? null;
+    const equippedGear = EQUIPMENT_SLOTS.map((slot) => snapshot.items.find((item) => item.instanceId === snapshot.slots[slot]) ?? null);
+    const bonuses = aggregateEquipmentBonuses([...equippedGear, weaponItem]);
+    const progression = characterProgressionAuthority.setAuthorityState({ bonuses });
+    commitCharacterProgression(progression);
+    const loadout = commitEquipmentSkillModifiers(bonuses.skillModifiers);
+    persist(snapshot);
+    $("m4BuildProof").textContent = loadout.compiledBuild ? `装备数值与技能词缀已进入战斗 · ${loadout.compiledBuild.buildHash.slice(0, 12)}` : "属性已同步 · 当前未装备可战斗武器";
+    const derivedEntries = Object.entries(bonuses.derived.equipmentBase);
+    $("m4EquippedStatProof").textContent = derivedEntries.length ? derivedEntries.slice(0, 3).map(([id, value]) => `${statLabel(id)} +${Math.round(value * 1000) / 1000}`).join(" · ") : "尚未穿戴装备";
+    $("m4SkillAffixProof").textContent = bonuses.skillModifiers.length ? bonuses.skillModifiers.map((modifier) => `${modifier.sourceAffixName} +${modifier.value}`).join(" · ") : "当前未激活";
+    const projectileSkills = loadout.compiledBuild?.compiledSkills.filter((skill) => skill.skillTags.includes("PROJECTILE")).map((skill) => {
+      const damage = skill.actions.flatMap((action) => action.effects).find((effect) => effect.kind === "direct_damage");
+      return damage ? `${skill.actions[0].name} Lv.${damage.params.skillLevel} · ${damage.params.projectileCount ?? 1}枚` : null;
+    }).filter(Boolean) ?? [];
+    $("m4ProjectileRuntimeProof").textContent = projectileSkills.length ? projectileSkills.join(" · ") : "等待投射物技能";
+    $("m4ClosureState").textContent = `Equipment v${snapshot.equipmentVersion} · Runtime ${loadout.compiledBuild ? "已同步" : "待构筑"}`;
+  }
 
   function itemIconHtml(item, equipped) {
     const badge = item.category === ITEM_CATEGORY.WEAPON ? `${item.skillCardSocketCount}孔` : item.slotLabel;
@@ -48,8 +82,8 @@ if ($("m4ItemizationLab")) {
   }
   function stackIconHtml(stack) { return `<button type="button" class="m4-item-icon m4-stack-icon${selectedStackId === stack.stackId ? " selected" : ""}" data-stack-id="${stack.stackId}" title="${stack.name} Lv.${stack.skillLevel}"><span>${stack.icon}</span><b>×${stack.quantity}</b><small>技能 Lv.${stack.skillLevel}</small><i>未鉴定</i></button>`; }
   function itemDetailHtml(item, options = {}) {
-    const baseStats = (item.baseStats ?? []).map((stat) => `<li class="m4-base-stat"><span>基底 · ${stat.scope === "local" ? "局部" : "全局"}</span><b>+${stat.value} ${statLabel(stat.statId)}</b><small>由 ${item.baseDefinitionId} 提供</small></li>`).join("");
-    const affixes = (item.affixes ?? []).map((affix) => { const value = affix.unit === "percent" ? `${Math.round(affix.value * 100)}%` : affix.value; const range = affix.unit === "percent" ? `${Math.round(affix.minimum * 100)}%–${Math.round(affix.maximum * 100)}%` : `${affix.minimum}–${affix.maximum}`; return `<li><span>${affix.kind === "prefix" ? "前" : "后"} · T${affix.tier} ${affix.name} · ${affix.scope === "local" ? "局部" : "全局"}</span><b>+${value} ${statLabel(affix.statId)}</b><small>物等门槛 ${affix.minimumItemLevel} · Roll ${range}</small></li>`; }).join("");
+    const baseStats = effectiveBaseStatsForItem(item).map((stat) => `<li class="m4-base-stat"><span>基底 · ${stat.scope === "local" ? "局部" : "全局"}${stat.qualityAdjusted ? ` · 品质 ${item.quality}%` : ""}</span><b>+${stat.value} ${statLabel(stat.statId)}</b><small>${stat.qualityAdjusted ? `原始 ${stat.baseValue} → 品质后 ${stat.value}` : `由 ${item.baseDefinitionId} 提供`}</small></li>`).join("");
+    const affixes = (item.affixes ?? []).map((affix) => { const value = affix.unit === "percent" ? `${Math.round(affix.value * 100)}%` : affix.value; const range = affix.unit === "percent" ? `${Math.round(affix.minimum * 100)}%–${Math.round(affix.maximum * 100)}%` : `${affix.minimum}–${affix.maximum}`; const selectorTag = affix.skillModifier?.selector?.skillAll?.[0]; const skillText = affix.skillModifier ? ({ add_skill_level: selectorTag === "PROJECTILE" ? "投射物技能等级" : selectorTag === "FIRE" ? "火焰技能等级" : "对应类型技能等级", add_projectile_count: "额外投射物数量", add_summon_count: "额外召唤物数量" }[affix.skillModifier.operation] ?? "特殊技能效果") : null; return `<li><span>${affix.kind === "prefix" ? "前缀" : "后缀"} · T${affix.tier} ${affix.name} · ${affix.scope === "local" ? "仅影响本装备" : "影响角色整体"}</span><b>+${value} ${skillText ?? statLabel(affix.statId)}</b><small>物等门槛 ${affix.minimumItemLevel} · 数值范围 ${range}${affix.skillModifier ? ` · 作用类型 ${selectorTag === "PROJECTILE" ? "投射物" : selectorTag === "FIRE" ? "火焰" : "对应技能"}` : ""}</small></li>`; }).join("");
     const detail = item.category === ITEM_CATEGORY.WEAPON ? (item.subtype === "two_handed_sword" ? "双手剑" : "盾剑") : item.slotLabel;
     const equipAction = options.action && item.category === ITEM_CATEGORY.EQUIPMENT ? `<button id="m4DetailEquip" type="button"${options.equipped ? " disabled" : ""}>${options.equipped ? "当前已穿戴" : options.replacing ? "替换当前装备" : "穿戴"}</button>` : "";
     const weaponAction = options.action && item.category === ITEM_CATEGORY.WEAPON ? `<button id="m4DetailWeaponEquip" type="button"${item.subtype !== "two_handed_sword" ? " disabled" : ""}>${item.loadoutBound ? "切换至此武器构筑" : "生成构筑并穿戴"}</button>` : "";
@@ -81,11 +115,18 @@ if ($("m4ItemizationLab")) {
       const total = snapshot.skillCardStacks.reduce((sum, stack) => sum + stack.quantity, 0); $("m4InventoryCount").textContent = `卡片 ${snapshot.skillCardStacks.length} / ${snapshot.maximumSkillStacks} 格 · 共 ${total}`;
       $("m4SkillInventory").innerHTML = snapshot.skillCardStacks.length ? snapshot.skillCardStacks.map(stackIconHtml).join("") : `<p class="empty">尚未拾取未鉴定技能宝石</p>`;
       const stack = snapshot.skillCardStacks.find((entry) => entry.stackId === selectedStackId); $("m4SkillDetail").innerHTML = stack ? stackDetailHtml(stack) : `<div class="m4-detail-empty"><b>未鉴定技能宝石</b><span>同等级自动堆叠；点击图标查看数量与等级</span></div>`;
-    } else $("m4InventoryCount").textContent = "通货背包 · 预留";
+    } else {
+      $("m4InventoryCount").textContent = `通货 ${CRAFTING_CURRENCIES.length} 类 · 独立容量`;
+      $("m4CurrencyBagPanel").innerHTML = `<b>通货库存由装备打造页统一管理</b><span>${CRAFTING_CURRENCIES.filter((entry) => entry.enabled).length} 类已接入正式打造 · 总持有 ${Object.values(snapshot.currencies).reduce((sum, value) => sum + value, 0)}</span>`;
+    }
   }
 
   function render(snapshot = equipment.snapshot()) {
     const level = monsterLevel(); globalThis.__INF_IDLE_MAP_MONSTER_LEVEL__ = level; $("m4MonsterLevel").textContent = `Lv.${level}`; $("m4DropLevel").textContent = `物品 Lv.${level}`; $("m4MapLevel").disabled = $("m4MapMode").value === MAP_LEVEL_MODE.DYNAMIC; $("m4PlayerLevel").disabled = $("m4MapMode").value === MAP_LEVEL_MODE.FIXED;
+    $("m4ClosureState").textContent = `Equipment v${snapshot.equipmentVersion} · Runtime ${currentLoadoutSnapshot().compiledBuild ? "已同步" : "待构筑"}`;
+    $("m4DropRuleProof").textContent = `${$("m4MapMode").value === MAP_LEVEL_MODE.DYNAMIC ? "动态终局" : "固定成长"} · 怪物/物品 Lv.${level}`;
+    const enabledAffixes = itemizationCatalog.affixes.filter((affix) => affix.rollEnabled !== false);
+    $("m4AffixPoolProof").textContent = `${enabledAffixes.length} 类可投放 · T${itemizationCatalog.tiers.filter((tier) => tier.minimumItemLevel <= level).at(-1).tier} 已解锁`;
     $("m4AuthorityState").textContent = `Equipment v${snapshot.equipmentVersion} · ${snapshot.equipmentHash.slice(0, 8)}`; $("m4PendingDrops").textContent = `${snapshot.pendingDrops.length.toLocaleString()} / ${snapshot.maximumPendingDrops.toLocaleString()} 件 · 雷达显示 ${activeLootNodes.size}/${MAX_VISIBLE_GROUND_LOOT}`;
     $("m4LatestPickup").textContent = pickupBlockedCode ? `背包已满 · 地图继续保留并排队` : latestPickup ? `${rarityLabel(latestPickup)} · ${latestPickup.name} · Lv.${latestPickup.itemLevel}` : "等待怪物掉落";
     $("m4EquipmentSlots").innerHTML = EQUIPMENT_SLOTS.map((slot) => { const item = snapshot.items.find((entry) => entry.instanceId === snapshot.slots[slot]); const label = itemizationCatalog.slotLabels[slot]; return `<button type="button" class="${selectedSlot === slot ? "selected" : ""} ${item ? "filled" : ""}" data-slot="${slot}"><small>${label}</small><strong>${item ? `${item.icon} ${item.name}` : "空栏位"}</strong><span>${item ? `Lv.${item.itemLevel} · 点击卸下` : "点击选择拟投放部位"}</span></button>`; }).join("");
@@ -155,5 +196,21 @@ if ($("m4ItemizationLab")) {
   $("m4SellMatched").onclick = () => { const before = equipment.snapshot(); const matches = saleCandidates(before); if (!matches.length) return; try { const next = equipment.sellItems({ ...request("sell", before), filter: currentSaleFilter() }); const soldCount = before.items.length - next.items.length; const earned = next.gold - before.gold; if (matches.some((item) => item.instanceId === selectedItemId)) selectedItemId = null; $("m4SaleResult").textContent = `已出售 ${soldCount} 件 · +${earned.toLocaleString()} 金币`; syncCharacter(next); render(next); drainGroundLoot(80); } catch (error) { $("m4SaleResult").textContent = `出售失败 · ${error.code ?? error.message}`; } };
   $("m4ResetLootTest").onclick = () => { localStorage.removeItem(SAVE_KEY); location.reload(); };
   $("m4ForgeryTest").onclick = () => { try { equipment.grantDrop({ ...request("forgery"), monsterLevel: monsterLevel(), affixes: [{ statId: "physicalAttack", value: 999999 }] }); } catch (error) { $("m4BuildProof").textContent = `服务器已拒绝 · ${error.code}`; } };
+  function craftThroughAuthority(command) {
+    const before = equipment.snapshot();
+    const result = equipment.craftItem({ ...request("craft", before), instanceId: command.instanceId, currencyId: command.currencyId, catalystId: command.catalystId ?? null });
+    persist(result.snapshot); syncCharacter(result.snapshot); render(result.snapshot);
+    window.dispatchEvent(new CustomEvent("inf-idle:equipment-snapshot-updated", { detail: result.snapshot }));
+    return result;
+  }
+  function grantTestCurrenciesThroughAuthority(command) {
+    const before = equipment.snapshot();
+    const result = equipment.grantTestCurrencies({ ...request("test-currency", before), currencyId: command.currencyId, amount: command.amount });
+    persist(result.snapshot); render(result.snapshot);
+    window.dispatchEvent(new CustomEvent("inf-idle:equipment-snapshot-updated", { detail: result.snapshot }));
+    return result;
+  }
+  window.__INF_IDLE_EQUIPMENT_API__ = Object.freeze({ snapshot: () => equipment.snapshot(), craftItem: craftThroughAuthority, grantTestCurrencies: grantTestCurrenciesThroughAuthority });
+  window.dispatchEvent(new CustomEvent("inf-idle:equipment-authority-ready", { detail: equipment.snapshot() }));
   updateSubtypeOptions(); renderPickupLog(); syncCharacter(equipment.snapshot()); render();
 }

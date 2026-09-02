@@ -151,6 +151,11 @@ export function unallocatePrimaryStat(command) {
   return commitCharacterProgression(characterProgressionAuthority.unallocate(command));
 }
 
+export function commitEquipmentSkillModifiers(nextModifiers = []) {
+  const loadoutSnapshot = loadoutAuthority.setEquipmentSkillModifiers(nextModifiers);
+  return publishLoadoutSnapshot(loadoutSnapshot);
+}
+
 export function resetPrimaryStats(command) {
   return commitCharacterProgression(characterProgressionAuthority.reset(command));
 }

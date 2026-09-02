@@ -1,5 +1,5 @@
 import { stableHash } from "../../build-compiler/src/compileActionBuild.js";
-import { EQUIPMENT_SLOTS, ITEM_CATEGORY, ITEM_RARITIES, ITEM_RARITY, RARITY_META, aggregateEquipmentBonuses, generateEquipmentDrop, generateMonsterLoot } from "../../itemization-core/src/index.js";
+import { CRAFTING_CURRENCIES, EQUIPMENT_SLOTS, ITEM_CATEGORY, ITEM_RARITIES, ITEM_RARITY, RARITY_META, aggregateEquipmentBonuses, craftItemWithCurrency, generateEquipmentDrop, generateMonsterLoot } from "../../itemization-core/src/index.js";
 
 export class EquipmentCommandError extends Error { constructor(code, message) { super(message); this.name = "EquipmentCommandError"; this.code = code; } }
 
@@ -10,7 +10,9 @@ export function createAuthoritativeEquipmentService(options = {}) {
   let pendingDrops = structuredClone(options.pendingDrops ?? []);
   let acquisitionSerial = options.acquisitionSerial ?? items.length;
   let lootRollSerial = options.lootRollSerial ?? 0;
+  let craftSerial = options.craftSerial ?? 0;
   let gold = options.gold ?? 0;
+  let currencies = Object.fromEntries(CRAFTING_CURRENCIES.map((entry) => [entry.id, Math.max(0, Number(options.currencies?.[entry.id] ?? (entry.enabled ? 30 : 3)) || 0)]));
   let slots = { ...Object.fromEntries(EQUIPMENT_SLOTS.map((slot) => [slot, null])), ...(options.slots ?? {}) };
   const results = new Map();
   const maximumEquipmentItems = options.maximumEquipmentItems ?? options.maximumItems ?? 600;
@@ -18,11 +20,12 @@ export function createAuthoritativeEquipmentService(options = {}) {
   const maximumSkillQuantityPerStack = options.maximumSkillQuantityPerStack ?? 9999;
   const maximumPendingDrops = options.maximumPendingDrops ?? 2000;
   const allowedSkillDefinitionIds = new Set(options.allowedSkillDefinitionIds ?? []);
+  const allowTestCommands = options.allowTestCommands === true;
 
   function snapshot() {
     const equippedItems = EQUIPMENT_SLOTS.map((slot) => items.find((item) => item.instanceId === slots[slot]) ?? null);
     const bonuses = aggregateEquipmentBonuses(equippedItems);
-    const value = { kind: "AuthoritativeEquipmentSnapshot", equipmentVersion: version, slots: structuredClone(slots), items: structuredClone(items), skillCardStacks: structuredClone(skillCardStacks), pendingDrops: structuredClone(pendingDrops), acquisitionSerial, lootRollSerial, gold, maximumItems: maximumEquipmentItems, maximumEquipmentItems, maximumSkillStacks, maximumSkillQuantityPerStack, maximumPendingDrops, bonuses };
+    const value = { kind: "AuthoritativeEquipmentSnapshot", equipmentVersion: version, slots: structuredClone(slots), items: structuredClone(items), skillCardStacks: structuredClone(skillCardStacks), pendingDrops: structuredClone(pendingDrops), acquisitionSerial, lootRollSerial, craftSerial, gold, currencies: structuredClone(currencies), maximumItems: maximumEquipmentItems, maximumEquipmentItems, maximumSkillStacks, maximumSkillQuantityPerStack, maximumPendingDrops, bonuses };
     return Object.freeze({ ...value, equipmentHash: stableHash(value) });
   }
 
@@ -146,7 +149,46 @@ export function createAuthoritativeEquipmentService(options = {}) {
     });
   }
 
+  function craftItem(input) {
+    return command("craft_item", input, ["instanceId", "currencyId", "catalystId"], () => {
+      const index = items.findIndex((entry) => entry.instanceId === input.instanceId);
+      if (index < 0) throw new EquipmentCommandError("ITEM_NOT_OWNED", "craft target is not owned");
+      if (items[index].loadoutBound) throw new EquipmentCommandError("EQUIPPED_WEAPON_CRAFT_LOCKED", "unequip the active weapon before crafting so the server can rebuild its WeaponLoadout atomically");
+      const currency = CRAFTING_CURRENCIES.find((entry) => entry.id === input.currencyId);
+      const catalyst = input.catalystId ? CRAFTING_CURRENCIES.find((entry) => entry.id === input.catalystId) : null;
+      if (!currency || !currency.enabled || currency.catalyst) throw new EquipmentCommandError("CURRENCY_NOT_USABLE", "selected currency cannot craft this item");
+      if ((currencies[currency.id] ?? 0) < 1) throw new EquipmentCommandError("CURRENCY_NOT_OWNED", "selected currency quantity is zero");
+      if (catalyst && (currencies[catalyst.id] ?? 0) < 1) throw new EquipmentCommandError("CATALYST_NOT_OWNED", "selected omen quantity is zero");
+      craftSerial += 1;
+      let crafted;
+      if (currency.id === "mirror") {
+        if (items.length >= maximumEquipmentItems) { craftSerial -= 1; throw new EquipmentCommandError("EQUIPMENT_INVENTORY_FULL", "equipment inventory is full"); }
+        if (items[index].mirrored || items[index].rarity === ITEM_RARITY.UNIQUE) { craftSerial -= 1; throw new EquipmentCommandError("MIRROR_TARGET_INVALID", "mirrored or unique items cannot be copied"); }
+        acquisitionSerial += 1;
+        crafted = { ...structuredClone(items[index]), instanceId: `mirror-${stableHash({ source: items[index].instanceId, craftSerial, entropy: options.serverEntropy ?? "m4d-server" }).slice(0, 16)}`, name: `${items[index].name} · 镜像`, mirrored: true, loadoutBound: false, loadoutWeaponInstanceId: null, acquiredOrder: acquisitionSerial, version: 1, craftHistory: [...(items[index].craftHistory ?? []), { currencyId: "mirror", sourceItemInstanceId: items[index].instanceId }] };
+        items.push(crafted); currencies[currency.id] -= 1;
+        return crafted;
+      }
+      try { crafted = craftItemWithCurrency({ item: items[index], currencyId: currency.id, catalystId: catalyst?.id, serverSeed: `${options.serverEntropy ?? "m4d-server"}:${craftSerial}:${items[index].instanceId}:${items[index].version}` }); }
+      catch (error) { craftSerial -= 1; throw new EquipmentCommandError(error.code ?? "CRAFT_FAILED", error.message); }
+      items[index] = crafted; currencies[currency.id] -= 1; if (catalyst) currencies[catalyst.id] -= 1;
+      return crafted;
+    }, (state, crafted) => Object.freeze({ snapshot: state, item: structuredClone(crafted) }));
+  }
+
+  function grantTestCurrencies(input) {
+    if (!allowTestCommands) throw new EquipmentCommandError("TEST_COMMAND_DISABLED", "test currency grants are disabled");
+    return command("grant_test_currencies", input, ["currencyId", "amount"], () => {
+      const amount = input.amount;
+      if (!Number.isInteger(amount) || amount < 1 || amount > 9999) throw new EquipmentCommandError("INVALID_TEST_GRANT_AMOUNT", "test grant amount must be 1-9999");
+      const ids = input.currencyId === "all" ? CRAFTING_CURRENCIES.filter((entry) => entry.enabled).map((entry) => entry.id) : [input.currencyId];
+      if (!ids.length || ids.some((id) => !CRAFTING_CURRENCIES.some((entry) => entry.id === id && entry.enabled))) throw new EquipmentCommandError("UNKNOWN_TEST_CURRENCY", "test currency must be enabled");
+      for (const id of ids) currencies[id] = Math.min(999999, (currencies[id] ?? 0) + amount);
+      return { currencyIds: ids, amount };
+    }, (state, grant) => Object.freeze({ snapshot: state, grant }));
+  }
+
   function equip(input) { return command("equip", input, ["instanceId", "slot"], () => { const item = items.find((entry) => entry.instanceId === input.instanceId); if (!item) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned"); if (!EQUIPMENT_SLOTS.includes(input.slot) || item.slot !== input.slot) throw new EquipmentCommandError("SLOT_MISMATCH", "item cannot be equipped in this slot"); slots[input.slot] = item.instanceId; }); }
   function unequip(input) { return command("unequip", input, ["slot"], () => { if (!EQUIPMENT_SLOTS.includes(input.slot)) throw new EquipmentCommandError("UNKNOWN_SLOT", "unknown equipment slot"); slots[input.slot] = null; }); }
-  return Object.freeze({ snapshot, grantDrop, grantValidationWeapon, rollMonsterLoot, collectDrop, identifySkillGem, authorizeWeaponGrant, discard, sellItems, equip, unequip });
+  return Object.freeze({ snapshot, grantDrop, grantValidationWeapon, rollMonsterLoot, collectDrop, identifySkillGem, authorizeWeaponGrant, discard, sellItems, craftItem, grantTestCurrencies, equip, unequip });
 }

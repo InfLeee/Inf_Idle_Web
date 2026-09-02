@@ -12,3 +12,4 @@ export * from "./authoritative-character-progression-service.js";
 export * from "./mastery-character-stats.js";
 export * from "./authoritative-party-service.js";
 export * from "./authoritative-replay-service.js";
+export * from "./authoritative-equipment-service.js";

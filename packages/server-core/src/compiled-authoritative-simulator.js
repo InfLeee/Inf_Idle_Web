@@ -89,6 +89,8 @@ export function createCompiledAuthoritativeSimulator(options = {}) {
       if (publicEvent) runtimeEvents.push(publicEvent);
       if (event.type !== "damage_intent" || events.length >= maxEventsPerSegment || next.settled) continue;
       const hitCount = Math.max(1, event.hitCount ?? 1);
+      const projectileCount = event.skillTags?.includes("PROJECTILE") ? Math.max(1, event.projectileCount ?? 1) : 1;
+      const sameVolleyHitLimitPerTarget = event.projectileVolley?.sameVolleyHitLimitPerTarget ?? 1;
       const stats = compiledBuild.characterStats?.derived?.final ?? {};
       const damageType = event.skillTags?.includes("TRUE") ? DAMAGE_TYPES.TRUE : event.skillTags?.includes("MAGIC") ? DAMAGE_TYPES.MAGIC : DAMAGE_TYPES.PHYSICAL;
       const baseMultiplier = event.baseMultiplier ?? event.multiplier;
@@ -96,7 +98,7 @@ export function createCompiledAuthoritativeSimulator(options = {}) {
       const numericBreakdown = settleDirectDamage({
         damageType,
         attackPower: (damageType === DAMAGE_TYPES.MAGIC ? stats.magicAttack : stats.physicalAttack) ?? encounter.playerBaseDamage,
-        skillCoefficient: baseMultiplier * hitCount,
+        skillCoefficient: baseMultiplier * hitCount * Math.min(projectileCount, sameVolleyHitLimitPerTarget),
         skillLevel: event.skillLevel ?? 1,
         skillLevelGrowth: event.skillLevelGrowth ?? 0.08,
         moreDamage: compiledModifier === 1 ? [] : [compiledModifier - 1],
@@ -120,6 +122,8 @@ export function createCompiledAuthoritativeSimulator(options = {}) {
         actionId: event.actionId,
         targeting: structuredClone(event.targeting),
         hitCount,
+        projectileCount,
+        projectileVolley: structuredClone(event.projectileVolley),
         damage,
         damageType,
         critical: numericBreakdown.critical,

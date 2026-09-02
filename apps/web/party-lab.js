@@ -1,5 +1,5 @@
 import { createAuthoritativePartyService } from "../../packages/server-core/src/authoritative-party-service.js";
-import { currentLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=mastery-stats-2";
+import { currentLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
 const LEADER_ID = "party-hero";

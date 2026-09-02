@@ -2,9 +2,9 @@ import { compileActionBuild } from "../../packages/build-compiler/src/compileAct
 import { twoHandedSwordA1Config as config } from "../../packages/game-config/two-handed-sword-a1.js?v=mastery-stats-2";
 import { assembleTwoHandedSwordA1CompileInput } from "../../packages/server-core/src/two-handed-sword-authority-assembler.js";
 import { deriveInventoryEntries, filterInventoryEntries } from "../../packages/inventory-core/src/inventory-view.js";
-import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=build-sync-3";
+import { simulateCompiledCombat } from "../../packages/combat-runtime/src/index.js?v=m4c-closure-3";
 import { cascadeRefundMastery, masteryNodeState } from "../../packages/mastery-core/src/index.js?v=mastery-board-1";
-import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority, subscribeLoadoutSnapshot, verifyLocalSaveRoundTrip } from "./loadout-authority.js?v=mastery-stats-2";
+import { getLocalSaveStatus, loadoutAuthority, publishLoadoutSnapshot, resetLoadoutAuthority, subscribeLoadoutSnapshot, verifyLocalSaveRoundTrip } from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
 const SUPPORT_STATUS_LABELS = Object.freeze({

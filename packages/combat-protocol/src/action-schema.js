@@ -46,6 +46,7 @@ export const MODIFIER_SOURCE_KIND = Object.freeze({
   SUPPORT_CARD: "support_card",
   MASTERY_NODE: "mastery_node",
   WEAPON_AFFIX: "weapon_affix",
+  EQUIPMENT_AFFIX: "equipment_affix",
 });
 
 export const MODIFIER_PHASE = Object.freeze({

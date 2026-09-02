@@ -4,7 +4,7 @@ import {
 } from "../../packages/server-core/src/encounter-authoritative-simulator.js?v=m2b-authority-1";
 import { COMBAT_COMMAND, validateCombatCommand } from "../../packages/server-core/src/combat-request-schema.js?v=m2b-authority-1";
 import { createAuthoritativeReplayRecord, verifyAuthoritativeReplayRecord } from "../../packages/server-core/src/authoritative-replay-service.js?v=m2c-replay-1";
-import { currentLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=mastery-stats-2";
+import { currentLoadoutSnapshot, subscribeLoadoutSnapshot } from "./loadout-authority.js?v=m4c-closure-3";
 
 const $ = (id) => document.getElementById(id);
 const simulator = createEncounterAuthoritativeSimulator();

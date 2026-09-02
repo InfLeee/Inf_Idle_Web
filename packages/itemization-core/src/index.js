@@ -12,6 +12,53 @@ export const ITEM_CATEGORY = Object.freeze({ WEAPON: "weapon", EQUIPMENT: "equip
 export const WEAPON_SUBTYPE = Object.freeze({ TWO_HANDED_SWORD: "two_handed_sword", SWORD_SHIELD: "sword_shield" });
 export const MOD_SCOPE = Object.freeze({ GLOBAL: "global", LOCAL: "local" });
 export const MOD_OPERATION = Object.freeze({ FLAT: "flat", INCREASED: "increased" });
+export const SKILL_AFFIX_OPERATION = Object.freeze({
+  ADD_SKILL_LEVEL: "add_skill_level",
+  ADD_PROJECTILE_COUNT: "add_projectile_count",
+  ADD_SUMMON_COUNT: "add_summon_count",
+});
+export const CRAFTING_CURRENCY_CATEGORY = Object.freeze({ BASIC: "basic", TARGETED: "targeted", QUALITY: "quality", SOCKET: "socket", SPECIAL: "special", FRAGMENT: "fragment" });
+export const CRAFTING_CURRENCIES = deepFreeze([
+  { id: "transmutation", name: "蜕变石", icon: "◈", category: "basic", enabled: true, description: "将普通物品升级为具有 1 个词缀的魔法物品。" },
+  { id: "greater_transmutation", name: "高级蜕变石", icon: "◈", category: "basic", enabled: true, minimumModifierLevel: 32, description: "蜕变为魔法物品；按 Inf_Idle 等级轴保证新增词缀等级不低于 32。" },
+  { id: "perfect_transmutation", name: "完美蜕变石", icon: "◈", category: "basic", enabled: true, minimumModifierLevel: 50, description: "蜕变为魔法物品；按 Inf_Idle 等级轴保证新增词缀等级不低于 50。" },
+  { id: "augmentation", name: "增幅石", icon: "✦", category: "basic", enabled: true, description: "为未满词缀的魔法物品增加 1 个随机词缀。" },
+  { id: "greater_augmentation", name: "高级增幅石", icon: "✦", category: "basic", enabled: true, minimumModifierLevel: 32, description: "增加魔法词缀；按 Inf_Idle 等级轴保证新增词缀等级不低于 32。" },
+  { id: "perfect_augmentation", name: "完美增幅石", icon: "✦", category: "basic", enabled: true, minimumModifierLevel: 50, description: "增加魔法词缀；按 Inf_Idle 等级轴保证新增词缀等级不低于 50。" },
+  { id: "regal", name: "富豪石", icon: "♜", category: "basic", enabled: true, description: "将魔法物品升级为稀有物品，并增加 1 个词缀。" },
+  { id: "greater_regal", name: "高级富豪石", icon: "♜", category: "basic", enabled: true, minimumModifierLevel: 35, description: "升为稀有物品；新增词缀最低等级 35。" },
+  { id: "perfect_regal", name: "完美富豪石", icon: "♜", category: "basic", enabled: true, minimumModifierLevel: 50, description: "升为稀有物品；新增词缀最低等级 50。" },
+  { id: "alchemy", name: "点金石", icon: "◆", category: "basic", enabled: true, description: "将普通或魔法物品升级为拥有 4 个随机词缀的稀有物品。" },
+  { id: "exalted", name: "崇高石", icon: "✹", category: "basic", enabled: true, description: "为未满词缀的稀有物品增加 1 个随机词缀。" },
+  { id: "greater_exalted", name: "高级崇高石", icon: "✹", category: "basic", enabled: true, minimumModifierLevel: 35, description: "增加稀有词缀；新增词缀最低等级 35。" },
+  { id: "perfect_exalted", name: "完美崇高石", icon: "✹", category: "basic", enabled: true, minimumModifierLevel: 50, description: "增加稀有词缀；新增词缀最低等级 50。" },
+  { id: "chaos", name: "混沌石", icon: "☯", category: "targeted", enabled: true, description: "移除稀有物品的 1 个随机词缀，再增加 1 个随机词缀。" },
+  { id: "greater_chaos", name: "高级混沌石", icon: "☯", category: "targeted", enabled: true, minimumModifierLevel: 35, description: "替换稀有词缀；新增词缀最低等级 35。" },
+  { id: "perfect_chaos", name: "完美混沌石", icon: "☯", category: "targeted", enabled: true, minimumModifierLevel: 50, description: "替换稀有词缀；新增词缀最低等级 50。" },
+  { id: "annulment", name: "剥离石", icon: "✂", category: "targeted", enabled: true, description: "随机移除物品上的 1 个词缀；可被左旋或右旋预兆定向。" },
+  { id: "divine", name: "神圣石", icon: "♢", category: "targeted", enabled: true, description: "重掷物品现有词缀在当前阶级内的数值。" },
+  { id: "sinistral_omen", name: "左旋预兆", icon: "↶", category: "targeted", enabled: true, catalyst: true, compatibleCurrencyIds: ["annulment"], description: "影响下一次剥离：仅从前缀中随机移除。" },
+  { id: "dextral_omen", name: "右旋预兆", icon: "↷", category: "targeted", enabled: true, catalyst: true, compatibleCurrencyIds: ["annulment"], description: "影响下一次剥离：仅从后缀中随机移除。" },
+  { id: "whetstone", name: "磨刀石", icon: "▰", category: "quality", enabled: true, description: "提升战斗武器品质；品质会提高武器基础属性，最高 20%。" },
+  { id: "arcanists_etcher", name: "奥术师的铭刻", icon: "▱", category: "quality", enabled: false, description: "提升法杖、长杖或权杖品质。" },
+  { id: "armour_scrap", name: "护甲片", icon: "▣", category: "quality", enabled: true, description: "提升四类防具品质；品质会提高防具基础属性，最高 20%。" },
+  { id: "glassblowers_bauble", name: "玻璃弹珠", icon: "◒", category: "quality", enabled: false, description: "提升药剂品质。" },
+  { id: "gemcutters_prism", name: "宝石匠的棱镜", icon: "◇", category: "quality", enabled: false, description: "提升技能宝石品质。" },
+  { id: "lesser_jeweller", name: "低等工匠石", icon: "⬡", category: "socket", enabled: false, description: "使技能宝石拥有 3 个辅助插槽。" },
+  { id: "greater_jeweller", name: "高等工匠石", icon: "⬡", category: "socket", enabled: false, description: "使技能宝石拥有 4 个辅助插槽。" },
+  { id: "perfect_jeweller", name: "完美工匠石", icon: "⬡", category: "socket", enabled: false, description: "使技能宝石拥有 5 个辅助插槽。" },
+  { id: "artificers_orb", name: "巧匠石", icon: "⬢", category: "socket", enabled: false, description: "为武器或护甲添加增幅器插槽。" },
+  { id: "wisdom_scroll", name: "知识卷轴", icon: "▤", category: "special", enabled: false, description: "鉴定一件物品。" },
+  { id: "chance", name: "机会石", icon: "?", category: "special", enabled: false, description: "尝试将普通物品升级为传奇物品，也可能摧毁它。" },
+  { id: "mirror", name: "卡兰德的魔镜", icon: "◐", category: "special", enabled: true, serviceOperation: true, description: "复制一件指定物品；镜像副本不可再被修改。" },
+  { id: "foretelling_braid", name: "辛格拉的发辫", icon: "〽", category: "special", enabled: false, description: "预示下一次通货操作结果。" },
+  { id: "vaal", name: "瓦尔宝珠", icon: "◉", category: "special", enabled: true, description: "随机修改并腐化物品；腐化后不可继续基础打造。" },
+  { id: "fracturing", name: "破溃宝珠", icon: "❖", category: "special", enabled: false, description: "分裂并锁定稀有物品的随机词缀。" },
+  { id: "transmutation_shard", name: "蜕变石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为蜕变石。" },
+  { id: "chance_shard", name: "机会石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为机会石。" },
+  { id: "regal_shard", name: "富豪石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为富豪石。" },
+  { id: "artificers_shard", name: "巧匠石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为巧匠石。" },
+]);
 export const RARITY_META = deepFreeze({
   normal: { name: "普通", color: "#f4f1e8", rank: 0, affixCount: 0 }, magic: { name: "魔法", color: "#63a9ff", rank: 1, affixCount: 2 },
   rare: { name: "稀有", color: "#f4c84b", rank: 2, affixCount: 6 }, unique: { name: "暗金", color: "#d98235", rank: 3, affixCount: 0 },
@@ -46,6 +93,29 @@ const BASE_ITEM_DEFINITIONS = deepFreeze([
 
 function tierValues(baseValue, options = {}) { return TIER_ROWS.map((row) => ({ tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: Math.round(row.weight * (options.weightMultiplier ?? 1)), minimum: roundValue(baseValue * row.power * (options.minimumFactor ?? .86), options.precision ?? 0), maximum: roundValue(baseValue * row.power * (options.maximumFactor ?? 1.14), options.precision ?? 0) })); }
 function affix(id, name, kind, modGroup, statId, bucket, baseValue, options = {}) { return { id, name, kind, family: id, modGroup, statId, bucket, scope: options.scope ?? MOD_SCOPE.GLOBAL, operation: options.operation ?? MOD_OPERATION.FLAT, unit: options.unit ?? "flat", domains: options.domains ?? ["armor", "accessory", "weapon"], slots: options.slots ?? [...EQUIPMENT_SLOTS, "weapon"], requiredTags: options.requiredTags ?? [], tiers: tierValues(baseValue, options) }; }
+function skillAffix(id, name, kind, modGroup, operation, selectorTag, options = {}) {
+  return {
+    id, name, kind, family: id, modGroup, statId: null, bucket: null,
+    scope: MOD_SCOPE.GLOBAL, operation: "skill_modifier", unit: "count",
+    domains: options.domains ?? ["accessory", "weapon"],
+    slots: options.slots ?? [...ACCESSORY_SLOTS, "weapon"], requiredTags: [],
+    rollEnabled: options.rollEnabled ?? true,
+    skillModifier: { operation, selector: { skillAll: [selectorTag] } },
+    tiers: TIER_ROWS.map((row) => ({
+      tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: row.weight,
+      minimum: options.valueForTier?.(row.tier) ?? 1,
+      maximum: options.valueForTier?.(row.tier) ?? 1,
+    })),
+  };
+}
+function weaponSkillAffix() {
+  return {
+    id: "weapon_skill_bundle", name: "武器技艺", kind: "prefix", family: "weapon_skill_bundle", modGroup: "weapon_skills",
+    statId: null, bucket: null, scope: MOD_SCOPE.LOCAL, operation: "grant_weapon_skills", unit: "count",
+    domains: ["weapon"], slots: ["weapon"], requiredTags: [], rollEnabled: true,
+    tiers: TIER_ROWS.map((row) => ({ ...row, minimum: 1, maximum: 5 })),
+  };
+}
 const AFFIX_DEFINITIONS = deepFreeze([
   affix("vigorous", "健壮", "prefix", "life", "maxHp", "equipmentBase", 58), affix("brutal", "残暴", "prefix", "physical_attack_flat", "physicalAttack", "equipmentBase", 10, { domains: ["armor", "accessory"] }),
   affix("arcane", "奥秘", "prefix", "magic_attack_flat", "magicAttack", "equipmentBase", 10), affix("armored", "坚甲", "prefix", "physical_defense_flat", "physicalDefense", "equipmentBase", 18, { domains: ["armor"], slots: ARMOR_SLOTS }),
@@ -55,6 +125,12 @@ const AFFIX_DEFINITIONS = deepFreeze([
   affix("fortunate", "幸运", "suffix", "critical", "critRating", "equipmentBase", 20, { domains: ["accessory", "weapon"], slots: [...ACCESSORY_SLOTS, "weapon"] }), affix("warded", "护佑", "suffix", "magic_defense", "magicDefense", "equipmentBase", 22),
   affix("fleet", "疾行", "suffix", "movement", "movementSpeedRating", "equipmentBase", 16, { domains: ["armor"], slots: ["feet"] }), affix("accelerated", "咏速", "suffix", "haste", "hasteRating", "equipmentBase", 18),
   affix("local_quickness", "利落", "suffix", "local_attack_speed", "attackSpeedRating", "equipmentBase", 22, { domains: ["weapon"], slots: ["weapon"], scope: MOD_SCOPE.LOCAL, requiredTags: ["attack"] }),
+  skillAffix("projectile_skill_level", "贯星", "prefix", "projectile_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "PROJECTILE", { valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("fire_skill_level", "焰脉", "prefix", "fire_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "FIRE", { valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("additional_projectile", "分裂", "suffix", "additional_projectile", SKILL_AFFIX_OPERATION.ADD_PROJECTILE_COUNT, "PROJECTILE", { valueForTier: (tier) => tier === 1 ? 2 : 1 }),
+  weaponSkillAffix(),
+  // 召唤运行协议尚未拥有正式技能；保留在权威词缀目录，但在召唤 Action 落地前不进入随机掉落池。
+  skillAffix("additional_summon", "统御", "prefix", "additional_summon", SKILL_AFFIX_OPERATION.ADD_SUMMON_COUNT, "SUMMON", { rollEnabled: false, domains: ["accessory"], slots: ACCESSORY_SLOTS }),
 ]);
 const UNIQUE_DEFINITIONS = deepFreeze({ chest: { namePrefix: "逐日者的", fixed: [["vigorous", 3], ["armored", 3], ["warded", 4]] }, weapon: { namePrefix: "晨曦誓约·", fixed: [["local_heavy", 3], ["local_tempered", 3], ["local_quickness", 4]] } });
 
@@ -63,11 +139,76 @@ export function unlockedAffixTier(itemLevel) { integer(itemLevel, "itemLevel"); 
 export function eligibleAffixTiers(definitionOrId, itemLevel) { integer(itemLevel, "itemLevel"); const definition = typeof definitionOrId === "string" ? AFFIX_DEFINITIONS.find((entry) => entry.id === definitionOrId) : definitionOrId; if (!definition) throw new Error(`unknown affix definition ${definitionOrId}`); return definition.tiers.filter((tier) => tier.minimumItemLevel <= itemLevel); }
 function chooseBase(slot, itemLevel, rng, requiredTag = null) { let entries = BASE_ITEM_DEFINITIONS.filter((entry) => entry.slot === slot && entry.dropLevel <= itemLevel && (!requiredTag || entry.tags.includes(requiredTag))); if (!entries.length) entries = BASE_ITEM_DEFINITIONS.filter((entry) => entry.slot === slot && entry.dropLevel <= itemLevel); const top = Math.max(...entries.map((item) => item.dropLevel)); return weightedPick(entries, rng, (entry) => entry.spawnWeight * (entry.dropLevel === top ? 2.2 : 1)); }
 function matchesAffix(definition, domain, slot, tags) { return definition.domains.includes(domain) && definition.slots.includes(slot) && definition.requiredTags.every((tag) => tags.includes(tag)); }
-function rollAffix(definition, itemLevel, rng, highAttribute, forcedTier = null) { const eligible = eligibleAffixTiers(definition, itemLevel); const row = forcedTier === null ? weightedPick(eligible, rng, (tier) => tier.weight * (highAttribute ? (9 - tier.tier) ** 1.7 : 1)) : eligible.find((tier) => tier.tier === forcedTier) ?? eligible.at(-1); const value = row.minimum + rng.nextFloat() * (row.maximum - row.minimum); return { id: definition.id, name: definition.name, kind: definition.kind, family: definition.family, modGroup: definition.modGroup, statId: definition.statId, bucket: definition.bucket, scope: definition.scope, operation: definition.operation, unit: definition.unit, tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: row.weight, minimum: row.minimum, maximum: row.maximum, value: roundValue(value, definition.unit === "percent" ? 3 : 0) }; }
-function rollAffixes({ domain, slot, tags, rarity, itemLevel, rng, highAttribute }) { const desired = RARITY_META[rarity].affixCount; if (!desired) return []; const perSide = rarity === ITEM_RARITY.MAGIC ? 1 : 3; const definitions = AFFIX_DEFINITIONS.filter((entry) => matchesAffix(entry, domain, slot, tags)); const selected = []; const groups = new Set(); for (const kind of ["prefix", "suffix"]) while (selected.filter((entry) => entry.kind === kind).length < perSide) { const candidates = definitions.filter((entry) => entry.kind === kind && !groups.has(entry.modGroup)); if (!candidates.length) break; const definition = weightedPick(candidates, rng, (entry) => eligibleAffixTiers(entry, itemLevel).reduce((sum, tier) => sum + tier.weight, 0)); groups.add(definition.modGroup); selected.push(rollAffix(definition, itemLevel, rng, highAttribute)); } return selected.slice(0, desired); }
+function currencyEligibleTiers(definition, itemLevel, minimumModifierLevel = 0) { const itemEligible = eligibleAffixTiers(definition, itemLevel), preferred = itemEligible.filter((tier) => tier.minimumItemLevel >= minimumModifierLevel); return preferred.length ? preferred : itemEligible.length ? [itemEligible.at(-1)] : []; }
+function rollAffix(definition, itemLevel, rng, highAttribute, forcedTier = null, minimumModifierLevel = 0) { const eligible = currencyEligibleTiers(definition, itemLevel, minimumModifierLevel); if (!eligible.length) throw Object.assign(new Error("affix family has no tier available at the item level"), { code: "NO_ELIGIBLE_AFFIX_TIER" }); const row = forcedTier === null ? weightedPick(eligible, rng, (tier) => tier.weight * (highAttribute ? (9 - tier.tier) ** 1.7 : 1)) : eligible.find((tier) => tier.tier === forcedTier) ?? eligible.at(-1); const value = row.minimum + rng.nextFloat() * (row.maximum - row.minimum); return { id: definition.id, name: definition.name, kind: definition.kind, family: definition.family, modGroup: definition.modGroup, statId: definition.statId, bucket: definition.bucket, scope: definition.scope, operation: definition.operation, unit: definition.unit, ...(definition.skillModifier ? { skillModifier: definition.skillModifier } : {}), tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: row.weight, minimum: row.minimum, maximum: row.maximum, value: roundValue(value, definition.unit === "percent" ? 3 : 0) }; }
+function rollAffixes({ domain, slot, tags, rarity, itemLevel, rng, highAttribute }) { const desired = RARITY_META[rarity].affixCount; if (!desired) return []; const perSide = rarity === ITEM_RARITY.MAGIC ? 1 : 3; const definitions = AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, domain, slot, tags)); const selected = []; const groups = new Set(); for (const kind of ["prefix", "suffix"]) while (selected.filter((entry) => entry.kind === kind).length < perSide) { const candidates = definitions.filter((entry) => entry.kind === kind && !groups.has(entry.modGroup)); if (!candidates.length) break; const definition = weightedPick(candidates, rng, (entry) => eligibleAffixTiers(entry, itemLevel).reduce((sum, tier) => sum + tier.weight, 0)); groups.add(definition.modGroup); selected.push(rollAffix(definition, itemLevel, rng, highAttribute)); } return selected.slice(0, desired); }
 function fixedUniqueAffixes(slot, itemLevel, rng) { const template = UNIQUE_DEFINITIONS[slot] ?? UNIQUE_DEFINITIONS.chest; return template.fixed.map(([id, tier]) => rollAffix(AFFIX_DEFINITIONS.find((entry) => entry.id === id), itemLevel, rng, true, tier)); }
 function makeBaseStats(definition) { return definition.baseStats.map(([statId, value]) => ({ statId, value, bucket: "equipmentBase", scope: definition.slot === "weapon" ? MOD_SCOPE.LOCAL : MOD_SCOPE.GLOBAL, operation: MOD_OPERATION.FLAT })); }
 function makeItemName(definition, rarity) { const unique = UNIQUE_DEFINITIONS[definition.slot === "weapon" ? "weapon" : definition.slot] ?? UNIQUE_DEFINITIONS.chest; return rarity === ITEM_RARITY.UNIQUE ? `${unique.namePrefix}${definition.name}` : definition.name; }
+
+function weaponSkillPool(subtype) { return subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? ["two_handed_sword_aura_blade", "two_handed_sword_breaker", "two_handed_sword_guard", "two_handed_sword_execution", "mount"] : ["shield_bash", "guard_followup", "sword_shield_combo", "block_counter", "hold_the_line"]; }
+function itemAffixContext(item) { return { domain: item.category === ITEM_CATEGORY.WEAPON ? "weapon" : item.subtype, slot: item.category === ITEM_CATEGORY.WEAPON ? "weapon" : item.slot, tags: item.baseTags ?? [] }; }
+function syncWeaponSkillPrefix(item, rng) {
+  if (item.category !== ITEM_CATEGORY.WEAPON) return { ...item };
+  const affixes = (item.affixes ?? []).map((entry) => ({ ...entry }));
+  const index = affixes.findIndex((entry) => entry.operation === "grant_weapon_skills");
+  if (index < 0) return { ...item, affixes, rolledWeaponSkills: [], rolledWeaponSkillDefinitionIds: [] };
+  const pool = weaponSkillPool(item.subtype); const existing = affixes[index].weaponSkillDefinitionIds?.filter((id) => pool.includes(id)) ?? [];
+  const count = Math.max(1, Math.min(5, existing.length || (1 + Math.floor(rng.nextFloat() * Math.min(5, pool.length)))));
+  const ids = existing.length ? existing.slice(0, count) : shuffle(pool, rng).slice(0, count);
+  affixes[index] = { ...affixes[index], value: ids.length, minimum: 1, maximum: 5, weaponSkillDefinitionIds: ids };
+  return { ...item, affixes, rolledWeaponSkills: ids, rolledWeaponSkillDefinitionIds: ids };
+}
+function craftingDefinition(id) { return CRAFTING_CURRENCIES.find((entry) => entry.id === id); }
+function baseCurrencyId(id) { return String(id).replace(/^(greater|perfect)_/, ""); }
+function craftFailure(code, message) { throw Object.assign(new Error(message), { code }); }
+function nextCraftAffix(item, affixes, rng, minimumModifierLevel = 0) {
+  const context = itemAffixContext(item), groups = new Set(affixes.map((entry) => entry.modGroup));
+  const prefixCount = affixes.filter((entry) => entry.kind === "prefix").length, suffixCount = affixes.filter((entry) => entry.kind === "suffix").length;
+  const candidates = AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, context.domain, context.slot, context.tags) && !groups.has(entry.modGroup) && (entry.kind === "prefix" ? prefixCount < 3 : suffixCount < 3) && currencyEligibleTiers(entry, item.itemLevel, minimumModifierLevel).length);
+  if (!candidates.length) craftFailure("NO_ELIGIBLE_AFFIX", "item has no eligible affix for this operation");
+  const definition = weightedPick(candidates, rng, (entry) => currencyEligibleTiers(entry, item.itemLevel, minimumModifierLevel).reduce((sum, tier) => sum + tier.weight, 0));
+  return rollAffix(definition, item.itemLevel, rng, false, null, minimumModifierLevel);
+}
+function addCraftAffixes(item, affixes, count, rng, minimumModifierLevel = 0) { const result = [...affixes]; while (result.length < count) result.push(nextCraftAffix(item, result, rng, minimumModifierLevel)); return result; }
+function rerollAffixValue(affix, rng) { const value = affix.minimum + rng.nextFloat() * (affix.maximum - affix.minimum); return { ...affix, value: roundValue(value, affix.unit === "percent" ? 3 : 0) }; }
+
+export function affixPoolForItem(item) {
+  const context = itemAffixContext(item);
+  return deepFreeze(AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, context.domain, context.slot, context.tags)).map((definition) => ({ ...definition, tiers: eligibleAffixTiers(definition, item.itemLevel) })));
+}
+
+export function craftItemWithCurrency(input = {}) {
+  const item = structuredClone(input.item), currency = craftingDefinition(input.currencyId), catalyst = input.catalystId ? craftingDefinition(input.catalystId) : null;
+  if (!item?.instanceId) craftFailure("INVALID_CRAFT_ITEM", "craft target is required");
+  if (!currency || !currency.enabled || currency.catalyst) craftFailure("CURRENCY_NOT_USABLE", "currency is not enabled for direct crafting");
+  if (item.mirrored) craftFailure("ITEM_MIRRORED", "mirrored items cannot be modified");
+  if (item.corrupted) craftFailure("ITEM_CORRUPTED", "corrupted items cannot be modified again");
+  if (catalyst && (!catalyst.catalyst || !catalyst.compatibleCurrencyIds.includes(baseCurrencyId(currency.id)))) craftFailure("CATALYST_NOT_COMPATIBLE", "selected omen does not modify this currency");
+  if ((currency.minimumModifierLevel ?? 0) > item.itemLevel) craftFailure("CURRENCY_LEVEL_REQUIREMENT", `item level must be at least ${currency.minimumModifierLevel}`);
+  const rng = createSeededRng(hashSeed(String(input.serverSeed ?? `${item.instanceId}:${item.version}:${currency.id}`))), operation = baseCurrencyId(currency.id), minimumModifierLevel = currency.minimumModifierLevel ?? 0;
+  let rarity = item.rarity, affixes = [...(item.affixes ?? [])], quality = item.quality ?? 0, corrupted = false, implicitAffixes = [...(item.implicitAffixes ?? [])], craftDelta = null;
+  if (!["whetstone", "armour_scrap", "vaal"].includes(operation) && rarity === ITEM_RARITY.UNIQUE) craftFailure("ITEM_NOT_CRAFTABLE", "unique items cannot use base affix crafting");
+  if (operation === "whetstone" || operation === "armour_scrap") { const valid = operation === "whetstone" ? item.category === ITEM_CATEGORY.WEAPON : item.category === ITEM_CATEGORY.EQUIPMENT && item.subtype === "armor"; if (!valid) craftFailure("QUALITY_TARGET_MISMATCH", "quality currency does not match this item type"); if (quality >= 20) craftFailure("QUALITY_AT_MAXIMUM", "item quality is already 20%"); quality = Math.min(20, quality + (rarity === ITEM_RARITY.NORMAL ? 5 : rarity === ITEM_RARITY.MAGIC ? 2 : 1)); }
+  else if (operation === "vaal") { corrupted = true; const outcome = Math.floor(rng.nextFloat() * 3); if (outcome === 1 && affixes.length) { const index = Math.floor(rng.nextFloat() * affixes.length); affixes[index] = rerollAffixValue(affixes[index], rng); } else if (outcome === 2) { const statId = item.category === ITEM_CATEGORY.WEAPON ? "physicalAttack" : "maxHp", value = Math.max(1, Math.round(item.itemLevel * (0.18 + rng.nextFloat() * 0.12))); implicitAffixes.push({ id: `corrupted_${statId}`, name: "腐化之力", kind: "implicit", statId, bucket: "equipmentBase", scope: item.category === ITEM_CATEGORY.WEAPON ? MOD_SCOPE.LOCAL : MOD_SCOPE.GLOBAL, operation: MOD_OPERATION.FLAT, unit: "flat", minimum: value, maximum: value, value }); } }
+  else if (operation === "transmutation") { if (rarity !== ITEM_RARITY.NORMAL) craftFailure("RARITY_MISMATCH", "transmutation requires a normal item"); rarity = ITEM_RARITY.MAGIC; affixes = addCraftAffixes(item, [], 1, rng, minimumModifierLevel); }
+  else if (operation === "augmentation") { if (rarity !== ITEM_RARITY.MAGIC || affixes.length >= 2) craftFailure("RARITY_MISMATCH", "augmentation requires a magic item with an open affix"); affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
+  else if (operation === "regal") { if (rarity !== ITEM_RARITY.MAGIC) craftFailure("RARITY_MISMATCH", "regal requires a magic item"); rarity = ITEM_RARITY.RARE; affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
+  else if (operation === "alchemy") { if (![ITEM_RARITY.NORMAL, ITEM_RARITY.MAGIC].includes(rarity)) craftFailure("RARITY_MISMATCH", "alchemy requires a normal or magic item"); rarity = ITEM_RARITY.RARE; affixes = addCraftAffixes(item, affixes, 4, rng, minimumModifierLevel); }
+  else if (operation === "exalted") { if (rarity !== ITEM_RARITY.RARE || affixes.length >= 6) craftFailure("RARITY_MISMATCH", "exalted requires a rare item with an open affix"); affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
+  else if (operation === "annulment") { if (!affixes.length) craftFailure("NO_AFFIX_TO_REMOVE", "item has no affix to remove"); const kind = catalyst?.id === "sinistral_omen" ? "prefix" : catalyst?.id === "dextral_omen" ? "suffix" : null; const candidates = affixes.map((entry, index) => ({ entry, index })).filter(({ entry }) => !kind || entry.kind === kind); if (!candidates.length) craftFailure("OMEN_TARGET_EMPTY", "the selected omen has no matching affix to remove"); affixes.splice(candidates[Math.floor(rng.nextFloat() * candidates.length)].index, 1); }
+  else if (operation === "chaos") {
+    if (rarity !== ITEM_RARITY.RARE || !affixes.length) craftFailure("RARITY_MISMATCH", "chaos requires a rare item with affixes");
+    const removedAffix = affixes.splice(Math.floor(rng.nextFloat() * affixes.length), 1)[0];
+    const addedAffix = nextCraftAffix(item, affixes, rng, minimumModifierLevel);
+    affixes.push(addedAffix);
+    craftDelta = { kind: "replace_one_affix", affixCountBefore: item.affixes.length, affixCountAfter: affixes.length, removedAffix, addedAffix };
+  }
+  else if (operation === "divine") { if (!affixes.length) craftFailure("NO_AFFIX_TO_REROLL", "item has no affix values to reroll"); affixes = affixes.map((entry) => entry.operation === "grant_weapon_skills" ? entry : rerollAffixValue(entry, rng)); }
+  else craftFailure("CURRENCY_NOT_IMPLEMENTED", "currency has no base-affix implementation");
+  const crafted = syncWeaponSkillPrefix({ ...item, rarity, affixes, implicitAffixes, quality, corrupted, version: (item.version ?? 1) + 1, craftHistory: [...(item.craftHistory ?? []), { currencyId: currency.id, catalystId: catalyst?.id ?? null, resultingRarity: rarity, resultingAffixCount: affixes.length, resultingQuality: quality, corrupted, ...(craftDelta ? { delta: craftDelta } : {}) }] }, rng);
+  return deepFreeze(crafted);
+}
 
 export function generateEquipmentDrop(input = {}) {
   const monsterLevel = integer(input.monsterLevel, "monsterLevel"), highAttribute = input.highAttribute ?? true, rarity = input.rarity ?? (highAttribute ? ITEM_RARITY.RARE : ITEM_RARITY.MAGIC); if (!ITEM_RARITIES.includes(rarity)) throw new Error(`unknown rarity ${rarity}`);
@@ -83,17 +224,38 @@ export function generateMonsterLoot(input = {}) {
   if (category === ITEM_CATEGORY.SKILL_CARD) { const skillLevel = Math.min(10, Math.max(1, Math.ceil(monsterLevel / 6))); return deepFreeze({ kind: "UnidentifiedSkillGemDrop", schemaVersion: ITEMIZATION_SCHEMA_VERSION, category, subtype: "unidentified_skill_gem", instanceId: `uncut-skill-${hashSeed(`${seed}:${skillLevel}`).toString(16)}`, name: "未鉴定技能宝石", icon: "✧", rarity, itemLevel: monsterLevel, requiredLevel: monsterLevel, skillLevel, unidentified: true, affixes: [], dropSource: { monsterLevel, mapId: input.mapId ?? null, encounterId: input.encounterId ?? null } }); }
   if (category === ITEM_CATEGORY.WEAPON) {
     const subtype = input.subtype ?? (rng.nextFloat() < .82 ? WEAPON_SUBTYPE.TWO_HANDED_SWORD : WEAPON_SUBTYPE.SWORD_SHIELD), definition = chooseBase("weapon", monsterLevel, rng, subtype), affixes = rarity === ITEM_RARITY.UNIQUE ? fixedUniqueAffixes("weapon", monsterLevel, rng) : rollAffixes({ domain: "weapon", slot: "weapon", tags: definition.tags, rarity, itemLevel: monsterLevel, rng, highAttribute: rarity === ITEM_RARITY.RARE });
-    const weaponPool = subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? ["two_handed_sword_aura_blade", "mount"] : ["shield_bash", "guard_followup", "sword_shield_combo", "block_counter", "hold_the_line"], skillCardSocketCount = 1 + Math.floor(rng.nextFloat() * 5), grantedSkill = rng.nextFloat() < .58 ? { instanceId: `gift-skill-${hashSeed(`${seed}:gift`).toString(16)}`, definitionId: subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? "two_handed_sword_slash" : "shield_bash", name: subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? "斩击" : "盾击", skillLevel: Math.min(10, Math.max(1, Math.ceil(monsterLevel / 6))), detachable: true, socketIndex: Math.floor(rng.nextFloat() * skillCardSocketCount) } : null, rolledCount = 1 + Math.floor(rng.nextFloat() * Math.min(5, weaponPool.length)), rolledWeaponSkillDefinitionIds = shuffle(weaponPool, rng).slice(0, rolledCount);
-    return deepFreeze({ kind: "LootWeaponInstance", schemaVersion: ITEMIZATION_SCHEMA_VERSION, category, subtype, instanceId: `loot-weapon-${hashSeed(`${seed}:${subtype}`).toString(16)}`, baseDefinitionId: definition.id, baseTags: definition.tags, name: makeItemName(definition, rarity), icon: definition.icon, rarity, itemLevel: monsterLevel, requiredLevel: Math.max(definition.requiredLevel, ...affixes.map((entry) => entry.minimumItemLevel), 1), baseStats: makeBaseStats(definition), affixes, skillCardSocketCount, supportSocketsPerSkill: 3, grantedSocketedSkillCard: grantedSkill, rolledWeaponSkills: rolledWeaponSkillDefinitionIds, rolledWeaponSkillDefinitionIds, quality: 0, corrupted: false, craftHistory: [], version: 1, dropSource: { monsterLevel, mapId: input.mapId ?? null, encounterId: input.encounterId ?? null } });
+    const skillCardSocketCount = 1 + Math.floor(rng.nextFloat() * 5), grantedSkill = rng.nextFloat() < .58 ? { instanceId: `gift-skill-${hashSeed(`${seed}:gift`).toString(16)}`, definitionId: subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? "two_handed_sword_slash" : "shield_bash", name: subtype === WEAPON_SUBTYPE.TWO_HANDED_SWORD ? "斩击" : "盾击", skillLevel: Math.min(10, Math.max(1, Math.ceil(monsterLevel / 6))), detachable: true, socketIndex: Math.floor(rng.nextFloat() * skillCardSocketCount) } : null;
+    const weapon = syncWeaponSkillPrefix({ kind: "LootWeaponInstance", schemaVersion: ITEMIZATION_SCHEMA_VERSION, category, subtype, instanceId: `loot-weapon-${hashSeed(`${seed}:${subtype}`).toString(16)}`, baseDefinitionId: definition.id, baseTags: definition.tags, name: makeItemName(definition, rarity), icon: definition.icon, rarity, itemLevel: monsterLevel, requiredLevel: Math.max(definition.requiredLevel, ...affixes.map((entry) => entry.minimumItemLevel), 1), baseStats: makeBaseStats(definition), affixes, skillCardSocketCount, supportSocketsPerSkill: 3, grantedSocketedSkillCard: grantedSkill, quality: 0, corrupted: false, craftHistory: [], version: 1, dropSource: { monsterLevel, mapId: input.mapId ?? null, encounterId: input.encounterId ?? null } }, rng);
+    return deepFreeze(weapon);
   }
   throw new Error(`unknown loot category ${category}`);
 }
 export function aggregateEquipmentBonuses(items = []) {
-  const derived = { equipmentBase: {}, basePercent: {}, extra: {} }, provenance = [];
+  const derived = { equipmentBase: {}, basePercent: {}, extra: {} }, provenance = [], skillModifiers = [];
   for (const item of items.filter(Boolean)) {
-    const stats = [...(item.baseStats ?? []), ...(item.affixes ?? [])];
+    const qualityBaseStats = effectiveBaseStatsForItem(item);
+    const stats = [...qualityBaseStats, ...(item.implicitAffixes ?? []), ...(item.affixes ?? [])];
     const localFlat = {}, localIncreased = {};
     for (const stat of stats) {
+      if (stat.operation === "grant_weapon_skills") {
+        provenance.push({ sourceKind: "weapon_skill_affix", sourceId: item.instanceId, sourceName: item.name, statId: "weaponSkills", bucket: "weaponSkill", amount: stat.value, tier: stat.tier ?? 0, scope: MOD_SCOPE.LOCAL, modGroup: stat.modGroup });
+        continue;
+      }
+      if (stat.skillModifier) {
+        skillModifiers.push({
+          id: `${item.instanceId}:${stat.id}`,
+          sourceItemInstanceId: item.instanceId,
+          sourceItemName: item.name,
+          sourceAffixId: stat.id,
+          sourceAffixName: stat.name,
+          selector: structuredClone(stat.skillModifier.selector),
+          operation: stat.skillModifier.operation,
+          value: stat.value,
+          tier: stat.tier,
+        });
+        provenance.push({ sourceKind: "equipment_skill_affix", sourceId: item.instanceId, sourceName: item.name, statId: stat.skillModifier.operation, bucket: "skillModifier", amount: stat.value, tier: stat.tier ?? 0, scope: MOD_SCOPE.GLOBAL, modGroup: stat.modGroup ?? null });
+        continue;
+      }
       if (stat.scope === MOD_SCOPE.LOCAL && stat.operation === MOD_OPERATION.INCREASED) localIncreased[stat.statId] = (localIncreased[stat.statId] ?? 0) + stat.value;
       else if (stat.scope === MOD_SCOPE.LOCAL) localFlat[stat.statId] = (localFlat[stat.statId] ?? 0) + stat.value;
       else { const bucket = stat.bucket ?? "equipmentBase"; derived[bucket][stat.statId] = (derived[bucket][stat.statId] ?? 0) + stat.value; }
@@ -105,6 +267,7 @@ export function aggregateEquipmentBonuses(items = []) {
       if (localIncreased[statId]) provenance.push({ sourceKind: "local_settlement", sourceId: item.instanceId, sourceName: item.name, statId, bucket: "equipmentBase", amount: finalLocal - flat, tier: 0, scope: MOD_SCOPE.LOCAL, modGroup: "local_settlement" });
     }
   }
-  return deepFreeze({ derived, provenance });
+  return deepFreeze({ derived, provenance, skillModifiers });
 }
+export function effectiveBaseStatsForItem(item) { const qualityMultiplier = 1 + Math.max(0, Math.min(20, item?.quality ?? 0)) / 100; return deepFreeze((item?.baseStats ?? []).map((stat) => ({ ...stat, baseValue: stat.value, value: roundValue(stat.value * qualityMultiplier, 3), qualityAdjusted: qualityMultiplier > 1, qualityMultiplier }))); }
 export const itemizationCatalog = deepFreeze({ bases: BASE_ITEM_DEFINITIONS, affixes: AFFIX_DEFINITIONS, tiers: TIER_ROWS, slotLabels: SLOT_LABELS });
