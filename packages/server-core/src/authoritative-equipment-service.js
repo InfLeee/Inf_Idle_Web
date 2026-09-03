@@ -126,7 +126,7 @@ export function createAuthoritativeEquipmentService(options = {}) {
     if (!filter || typeof filter !== "object" || Array.isArray(filter)) throw new EquipmentCommandError("INVALID_SALE_FILTER", "sale filter must be an object");
     for (const key of Object.keys(filter)) if (!["maximumItemLevel", "rarities", "positions"].includes(key)) throw new EquipmentCommandError("INVALID_SALE_FILTER", `unexpected sale filter field ${key}`);
     const maximumItemLevel = filter.maximumItemLevel;
-    if (!Number.isInteger(maximumItemLevel) || maximumItemLevel < 1 || maximumItemLevel > 60) throw new EquipmentCommandError("INVALID_SALE_FILTER", "maximumItemLevel must be 1-60");
+    if (!Number.isInteger(maximumItemLevel) || maximumItemLevel < 1 || maximumItemLevel > 100) throw new EquipmentCommandError("INVALID_SALE_FILTER", "maximumItemLevel must be 1-100");
     const rarities = filter.rarities ?? [];
     if (!Array.isArray(rarities) || rarities.some((rarity) => !ITEM_RARITIES.includes(rarity))) throw new EquipmentCommandError("INVALID_SALE_FILTER", "rarities contain an unknown value");
     const validPositions = ["weapon", ...EQUIPMENT_SLOTS]; const positions = filter.positions ?? [];
@@ -150,15 +150,17 @@ export function createAuthoritativeEquipmentService(options = {}) {
   }
 
   function craftItem(input) {
-    return command("craft_item", input, ["instanceId", "currencyId", "catalystId"], () => {
+    return command("craft_item", input, ["instanceId", "currencyId", "catalystId", "catalystIds"], () => {
       const index = items.findIndex((entry) => entry.instanceId === input.instanceId);
       if (index < 0) throw new EquipmentCommandError("ITEM_NOT_OWNED", "craft target is not owned");
       if (items[index].loadoutBound) throw new EquipmentCommandError("EQUIPPED_WEAPON_CRAFT_LOCKED", "unequip the active weapon before crafting so the server can rebuild its WeaponLoadout atomically");
       const currency = CRAFTING_CURRENCIES.find((entry) => entry.id === input.currencyId);
-      const catalyst = input.catalystId ? CRAFTING_CURRENCIES.find((entry) => entry.id === input.catalystId) : null;
+      if (input.catalystIds != null && !Array.isArray(input.catalystIds)) throw new EquipmentCommandError("INVALID_OMEN_LIST", "catalystIds must be an array");
+      const catalystIds = input.catalystIds ?? (input.catalystId ? [input.catalystId] : []), catalysts = catalystIds.map((id) => CRAFTING_CURRENCIES.find((entry) => entry.id === id));
       if (!currency || !currency.enabled || currency.catalyst) throw new EquipmentCommandError("CURRENCY_NOT_USABLE", "selected currency cannot craft this item");
+      if (catalystIds.some((id) => typeof id !== "string") || new Set(catalystIds).size !== catalystIds.length || catalysts.some((entry) => !entry || !entry.enabled || !entry.catalyst)) throw new EquipmentCommandError("OMEN_NOT_USABLE", "selected omen list is invalid");
       if ((currencies[currency.id] ?? 0) < 1) throw new EquipmentCommandError("CURRENCY_NOT_OWNED", "selected currency quantity is zero");
-      if (catalyst && (currencies[catalyst.id] ?? 0) < 1) throw new EquipmentCommandError("CATALYST_NOT_OWNED", "selected omen quantity is zero");
+      if (catalysts.some((entry) => (currencies[entry.id] ?? 0) < 1)) throw new EquipmentCommandError("CATALYST_NOT_OWNED", "selected omen quantity is zero");
       craftSerial += 1;
       let crafted;
       if (currency.id === "mirror") {
@@ -169,11 +171,35 @@ export function createAuthoritativeEquipmentService(options = {}) {
         items.push(crafted); currencies[currency.id] -= 1;
         return crafted;
       }
-      try { crafted = craftItemWithCurrency({ item: items[index], currencyId: currency.id, catalystId: catalyst?.id, serverSeed: `${options.serverEntropy ?? "m4d-server"}:${craftSerial}:${items[index].instanceId}:${items[index].version}` }); }
+      if (currency.id === "foretelling_braid") {
+        if (items[index].mirrored || items[index].corrupted) { craftSerial -= 1; throw new EquipmentCommandError("FORETELLING_TARGET_INVALID", "mirrored or corrupted items cannot be foretold"); }
+        if (items[index].foretelling) { craftSerial -= 1; throw new EquipmentCommandError("ITEM_ALREADY_FORETOLD", "item already has an active foretelling"); }
+        const foretelling = { kind: "currency_foretelling", seed: stableHash({ entropy: options.serverEntropy ?? "m4d-server", craftSerial, instanceId: items[index].instanceId, version: items[index].version }), appliedAtVersion: items[index].version };
+        crafted = { ...structuredClone(items[index]), foretelling, version: (items[index].version ?? 1) + 1, craftHistory: [...(items[index].craftHistory ?? []), { currencyId: currency.id, resultingAffixCount: items[index].affixes?.length ?? 0 }] };
+        items[index] = crafted; currencies[currency.id] -= 1; return crafted;
+      }
+      const foretellingSeed = items[index].foretelling?.seed ? `${items[index].foretelling.seed}:${currency.id}:${catalystIds.join(",") || "none"}` : null;
+      try { crafted = craftItemWithCurrency({ item: items[index], currencyId: currency.id, catalystIds, serverSeed: foretellingSeed ?? `${options.serverEntropy ?? "m4d-server"}:${craftSerial}:${items[index].instanceId}:${items[index].version}` }); }
       catch (error) { craftSerial -= 1; throw new EquipmentCommandError(error.code ?? "CRAFT_FAILED", error.message); }
-      items[index] = crafted; currencies[currency.id] -= 1; if (catalyst) currencies[catalyst.id] -= 1;
+      if (items[index].foretelling) { const { foretelling: _consumed, ...withoutForetelling } = structuredClone(crafted); crafted = withoutForetelling; }
+      items[index] = crafted; currencies[currency.id] -= 1; for (const catalyst of catalysts) currencies[catalyst.id] -= 1;
       return crafted;
     }, (state, crafted) => Object.freeze({ snapshot: state, item: structuredClone(crafted) }));
+  }
+
+  function previewCraftItem(input) {
+    if (!input || typeof input !== "object") throw new EquipmentCommandError("INVALID_COMMAND", "preview command must be an object");
+    for (const key of Object.keys(input)) if (!["expectedVersion", "instanceId", "currencyId", "catalystId", "catalystIds"].includes(key)) throw new EquipmentCommandError("UNEXPECTED_COMMAND_FIELD", `unexpected field ${key}`);
+    if (input.expectedVersion !== version) throw new EquipmentCommandError("VERSION_CONFLICT", "equipment version conflict");
+    const item = items.find((entry) => entry.instanceId === input.instanceId); if (!item) throw new EquipmentCommandError("ITEM_NOT_OWNED", "craft target is not owned");
+    if (!item.foretelling?.seed) throw new EquipmentCommandError("FORETELLING_REQUIRED", "item has no active foretelling");
+    if (input.catalystIds != null && !Array.isArray(input.catalystIds)) throw new EquipmentCommandError("INVALID_OMEN_LIST", "catalystIds must be an array");
+    const currency = CRAFTING_CURRENCIES.find((entry) => entry.id === input.currencyId), catalystIds = input.catalystIds ?? (input.catalystId ? [input.catalystId] : []), catalysts = catalystIds.map((id) => CRAFTING_CURRENCIES.find((entry) => entry.id === id));
+    if (!currency || !currency.enabled || currency.catalyst || currency.serviceOperation) throw new EquipmentCommandError("CURRENCY_NOT_PREVIEWABLE", "selected currency cannot be foretold");
+    if (catalysts.some((entry) => !entry || !entry.enabled || !entry.catalyst)) throw new EquipmentCommandError("OMEN_NOT_USABLE", "selected omen is not enabled");
+    if ((currencies[currency.id] ?? 0) < 1 || catalysts.some((entry) => (currencies[entry.id] ?? 0) < 1)) throw new EquipmentCommandError("CURRENCY_NOT_OWNED", "previewed currency is not owned");
+    try { return Object.freeze({ equipmentVersion: version, item: structuredClone(craftItemWithCurrency({ item, currencyId: currency.id, catalystIds, serverSeed: `${item.foretelling.seed}:${currency.id}:${catalystIds.join(",") || "none"}` })) }); }
+    catch (error) { throw new EquipmentCommandError(error.code ?? "CRAFT_PREVIEW_FAILED", error.message); }
   }
 
   function grantTestCurrencies(input) {
@@ -190,5 +216,5 @@ export function createAuthoritativeEquipmentService(options = {}) {
 
   function equip(input) { return command("equip", input, ["instanceId", "slot"], () => { const item = items.find((entry) => entry.instanceId === input.instanceId); if (!item) throw new EquipmentCommandError("ITEM_NOT_OWNED", "equipment item is not owned"); if (!EQUIPMENT_SLOTS.includes(input.slot) || item.slot !== input.slot) throw new EquipmentCommandError("SLOT_MISMATCH", "item cannot be equipped in this slot"); slots[input.slot] = item.instanceId; }); }
   function unequip(input) { return command("unequip", input, ["slot"], () => { if (!EQUIPMENT_SLOTS.includes(input.slot)) throw new EquipmentCommandError("UNKNOWN_SLOT", "unknown equipment slot"); slots[input.slot] = null; }); }
-  return Object.freeze({ snapshot, grantDrop, grantValidationWeapon, rollMonsterLoot, collectDrop, identifySkillGem, authorizeWeaponGrant, discard, sellItems, craftItem, grantTestCurrencies, equip, unequip });
+  return Object.freeze({ snapshot, grantDrop, grantValidationWeapon, rollMonsterLoot, collectDrop, identifySkillGem, authorizeWeaponGrant, discard, sellItems, craftItem, previewCraftItem, grantTestCurrencies, equip, unequip });
 }

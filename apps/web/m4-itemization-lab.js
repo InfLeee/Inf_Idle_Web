@@ -13,9 +13,9 @@ const SKILL_DEFINITIONS = Object.values(currentLoadoutSnapshot().ownershipInput.
 const SKILL_NAME_BY_ID = Object.fromEntries(Object.values(currentLoadoutSnapshot().ownershipInput.registry.skills).map((definition) => [definition.id, definition.name]));
 function t1CraftingFixtures() {
   const definitions = [
-    generateMonsterLoot({ monsterLevel: 60, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "normal", seed: "m4d-t1-weapon-normal" }),
-    generateMonsterLoot({ monsterLevel: 60, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "rare", seed: "m4d-t1-weapon-rare" }),
-    ...EQUIPMENT_SLOTS.map((slot, index) => generateEquipmentDrop({ monsterLevel: 60, slot, rarity: index % 3 === 0 ? "normal" : index % 3 === 1 ? "magic" : "rare", seed: `m4d-t1-${slot}` })),
+    generateMonsterLoot({ monsterLevel: 81, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "normal", seed: "m4d-t1-weapon-normal" }),
+    generateMonsterLoot({ monsterLevel: 81, category: ITEM_CATEGORY.WEAPON, subtype: "two_handed_sword", rarity: "rare", seed: "m4d-t1-showcase-2" }),
+    ...EQUIPMENT_SLOTS.map((slot, index) => generateEquipmentDrop({ monsterLevel: 81, slot, rarity: index % 3 === 0 ? "normal" : index % 3 === 1 ? "magic" : "rare", seed: `m4d-t1-${slot}` })),
   ];
   return definitions.map((item, index) => ({ ...structuredClone(item), name: `${item.name} · T1测试`, testFixture: "t1_crafting", acquiredOrder: 900000 + index }));
 }
@@ -95,7 +95,7 @@ if ($("m4ItemizationLab")) {
 
   function updateSubtypeOptions() { const options = SUBTYPE_OPTIONS[categoryFilter] ?? SUBTYPE_OPTIONS.all; const previous = $("m4SubtypeFilter").value; $("m4SubtypeFilter").innerHTML = options.map(([value, label]) => `<option value="${value}">${label}</option>`).join(""); $("m4SubtypeFilter").value = options.some(([value]) => value === previous) ? previous : "all"; }
   function filteredItems(snapshot) { const subtype = $("m4SubtypeFilter").value; const rarity = $("m4RarityFilter").value; const sort = $("m4SortMode").value; return snapshot.items.filter((item) => (categoryFilter === "all" || item.category === categoryFilter) && (subtype === "all" || item.subtype === subtype || item.slot === subtype) && (rarity === "all" || item.rarity === rarity)).sort((a, b) => sort === "rarity" ? (RARITY_META[b.rarity].rank - RARITY_META[a.rarity].rank || b.itemLevel - a.itemLevel) : sort === "level" ? (b.itemLevel - a.itemLevel || RARITY_META[b.rarity].rank - RARITY_META[a.rarity].rank) : (a.acquiredOrder ?? 0) - (b.acquiredOrder ?? 0)); }
-  function currentSaleFilter() { const rarity = $("m4SaleRarity").value; const position = $("m4SalePosition").value; return { maximumItemLevel: Math.max(1, Math.min(60, Number($("m4SaleMaxLevel").value) || 1)), rarities: rarity === "all" ? [] : [rarity], positions: position === "all" ? [] : [position] }; }
+  function currentSaleFilter() { const rarity = $("m4SaleRarity").value; const position = $("m4SalePosition").value; return { maximumItemLevel: Math.max(1, Math.min(100, Number($("m4SaleMaxLevel").value) || 1)), rarities: rarity === "all" ? [] : [rarity], positions: position === "all" ? [] : [position] }; }
   function saleCandidates(snapshot, filter = currentSaleFilter()) { const equipped = new Set(Object.values(snapshot.slots).filter(Boolean)); return snapshot.items.filter((item) => { const position = item.category === ITEM_CATEGORY.WEAPON ? "weapon" : item.slot; return !equipped.has(item.instanceId) && item.itemLevel <= filter.maximumItemLevel && (!filter.rarities.length || filter.rarities.includes(item.rarity)) && (!filter.positions.length || filter.positions.includes(position)); }); }
   function saleValue(item) { return Math.max(1, item.itemLevel) * ((RARITY_META[item.rarity]?.rank ?? 0) + 1) * 5; }
   function renderSalePreview(snapshot) { const matches = saleCandidates(snapshot); const value = matches.reduce((sum, item) => sum + saleValue(item), 0); $("m4GoldBalance").textContent = `金币 ${snapshot.gold.toLocaleString()}`; $("m4SalePreview").textContent = matches.length ? `将出售 ${matches.length} 件未穿戴装备，预计获得 ${value.toLocaleString()} 金币；该筛选结构将直接作为后续自动出售规则基础。` : "当前没有符合条件的未穿戴装备；已穿戴装备始终受到保护。"; $("m4SellMatched").disabled = matches.length === 0; }
@@ -192,13 +192,14 @@ if ($("m4ItemizationLab")) {
   $("m4CategoryTabs").querySelectorAll("[data-category]").forEach((button) => button.onclick = () => { categoryFilter = button.dataset.category; $("m4CategoryTabs").querySelectorAll("button").forEach((entry) => entry.classList.toggle("active", entry === button)); updateSubtypeOptions(); render(); });
   ["m4SubtypeFilter", "m4RarityFilter", "m4SortMode"].forEach((id) => $(id).addEventListener("change", () => render()));
   $("m4AutoSort").onclick = () => { render(); $("m4AutoSort").textContent = `已按${$("m4SortMode").selectedOptions[0].textContent}整理`; setTimeout(() => { $("m4AutoSort").textContent = "一键自动排序"; }, 900); };
+  $("m4SaleMaxLevel").max = "100";
   ["m4SaleMaxLevel", "m4SaleRarity", "m4SalePosition"].forEach((id) => { $(id).addEventListener("input", () => renderSalePreview(equipment.snapshot())); $(id).addEventListener("change", () => renderSalePreview(equipment.snapshot())); });
   $("m4SellMatched").onclick = () => { const before = equipment.snapshot(); const matches = saleCandidates(before); if (!matches.length) return; try { const next = equipment.sellItems({ ...request("sell", before), filter: currentSaleFilter() }); const soldCount = before.items.length - next.items.length; const earned = next.gold - before.gold; if (matches.some((item) => item.instanceId === selectedItemId)) selectedItemId = null; $("m4SaleResult").textContent = `已出售 ${soldCount} 件 · +${earned.toLocaleString()} 金币`; syncCharacter(next); render(next); drainGroundLoot(80); } catch (error) { $("m4SaleResult").textContent = `出售失败 · ${error.code ?? error.message}`; } };
   $("m4ResetLootTest").onclick = () => { localStorage.removeItem(SAVE_KEY); location.reload(); };
   $("m4ForgeryTest").onclick = () => { try { equipment.grantDrop({ ...request("forgery"), monsterLevel: monsterLevel(), affixes: [{ statId: "physicalAttack", value: 999999 }] }); } catch (error) { $("m4BuildProof").textContent = `服务器已拒绝 · ${error.code}`; } };
   function craftThroughAuthority(command) {
     const before = equipment.snapshot();
-    const result = equipment.craftItem({ ...request("craft", before), instanceId: command.instanceId, currencyId: command.currencyId, catalystId: command.catalystId ?? null });
+    const result = equipment.craftItem({ ...request("craft", before), instanceId: command.instanceId, currencyId: command.currencyId, catalystIds: command.catalystIds ?? (command.catalystId ? [command.catalystId] : []) });
     persist(result.snapshot); syncCharacter(result.snapshot); render(result.snapshot);
     window.dispatchEvent(new CustomEvent("inf-idle:equipment-snapshot-updated", { detail: result.snapshot }));
     return result;
@@ -210,7 +211,11 @@ if ($("m4ItemizationLab")) {
     window.dispatchEvent(new CustomEvent("inf-idle:equipment-snapshot-updated", { detail: result.snapshot }));
     return result;
   }
-  window.__INF_IDLE_EQUIPMENT_API__ = Object.freeze({ snapshot: () => equipment.snapshot(), craftItem: craftThroughAuthority, grantTestCurrencies: grantTestCurrenciesThroughAuthority });
+  function previewCraftThroughAuthority(command) {
+    const before = equipment.snapshot();
+    return equipment.previewCraftItem({ expectedVersion: before.equipmentVersion, instanceId: command.instanceId, currencyId: command.currencyId, catalystIds: command.catalystIds ?? (command.catalystId ? [command.catalystId] : []) });
+  }
+  window.__INF_IDLE_EQUIPMENT_API__ = Object.freeze({ snapshot: () => equipment.snapshot(), craftItem: craftThroughAuthority, previewCraftItem: previewCraftThroughAuthority, grantTestCurrencies: grantTestCurrenciesThroughAuthority });
   window.dispatchEvent(new CustomEvent("inf-idle:equipment-authority-ready", { detail: equipment.snapshot() }));
   updateSubtypeOptions(); renderPickupLog(); syncCharacter(equipment.snapshot()); render();
 }

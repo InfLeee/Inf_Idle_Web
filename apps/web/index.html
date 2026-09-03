@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="./m3-numeric-lab.css?v=m3d-1">
   <link rel="stylesheet" href="./m4-itemization-lab.css?v=m4c-closure-3">
   <link rel="stylesheet" href="./m4-crafting-lab.css?v=m4d-3">
+  <link rel="stylesheet" href="./m4-crafting-visual-v2.css?v=m4d-8">
   <link rel="stylesheet" href="./projectile-volley-lab.css?v=m4c-closure-3">
 </head>
 <body>
@@ -387,12 +388,13 @@
           <aside class="m4d-target-panel"><header><div><small>CRAFT TARGET</small><h3>选择目标装备</h3></div><span id="m4dTargetCount">0 件</span></header><div id="m4dTargetFilters" class="m4d-target-filters"><button class="active" data-craft-target="all">全部</button><button data-craft-target="weapon">武器</button><button data-craft-target="equipment">防具首饰</button></div><div id="m4dTargetList" class="m4d-target-list"></div></aside>
           <main class="m4d-workbench">
             <section id="m4dItemPreview" class="m4d-item-preview"><div class="empty"><b>尚未选择目标装备</b><span>从左侧装备列表选择一件物品</span></div></section>
-            <section class="m4d-selection-flow"><article><small>步骤 1 · 预兆</small><strong id="m4dSelectedCatalyst">不使用预兆</strong><button id="m4dClearCatalyst" type="button">清除</button></article><i>→</i><article><small>步骤 2 · 通货</small><strong id="m4dSelectedCurrency">尚未选择</strong></article><i>→</i><button id="m4dApplyCraft" type="button" disabled>服务器确认打造</button></section>
+            <section class="m4d-omen-panel"><header><div><small>OMEN COMBINATION</small><h3>预兆组合窗口</h3></div><span>选择状态会在连续打造间保留</span></header><div id="m4dOmenGrid" class="m4d-omen-grid"></div><aside id="m4dOmenInfo"><b>可组合使用预兆</b><span>方向预兆负责限定前后缀，消减预兆负责锁定可出现物品等级最低的词缀。</span></aside></section>
+            <section class="m4d-selection-flow"><article><small>步骤 1 · 预兆组合</small><strong id="m4dSelectedCatalyst">不使用预兆</strong><button id="m4dClearCatalyst" type="button">清除</button></article><i>→</i><article><small>步骤 2 · 通货</small><strong id="m4dSelectedCurrency">尚未选择</strong></article><i>→</i><button id="m4dApplyCraft" type="button" disabled>服务器确认打造</button></section>
             <section class="m4d-currency-panel"><header><div><small>POE2 CURRENCY CATALOG</small><h3>通货功能库</h3></div><span>悬停查看功能 · 数量由服务器快照提供</span></header><nav id="m4dCurrencyTabs" class="m4d-currency-tabs"></nav><div id="m4dCurrencyGrid" class="m4d-currency-grid"></div></section>
           </main>
           <aside class="m4d-affix-panel"><header><div><small>MODIFIERS CALC</small><h3>可出现属性统计</h3></div><span id="m4dAffixSummary">等待装备</span></header><div class="m4d-affix-legend"><span>P 前缀</span><span>S 后缀</span><span>T1 最高阶</span><span>权重越高越常见</span></div><div id="m4dAffixTable" class="m4d-affix-table"><p>选择装备后，按物品等级列出完整可用词缀和各阶级范围。</p></div></aside>
         </div>
-        <footer class="m4d-proof"><span>客户端只提交：目标实例 ID、通货 ID、预兆 ID</span><span>服务器决定：适用性、扣除数量、随机词缀、Roll 值与装备版本</span><b>不接受客户端提交最终属性</b></footer>
+        <footer class="m4d-proof"><span>客户端只提交：目标实例 ID、通货 ID、预兆 ID 列表</span><span>服务器决定：组合合法性、扣除数量、随机词缀、Roll 值与装备版本</span><b>不接受客户端提交最终属性</b></footer>
       </section>
 
       <section class="m3-numeric-lab" id="m3NumericLab" aria-label="M3战斗数值实验室">
@@ -463,8 +465,8 @@
   <script type="module" src="./timing-lab.js?v=runtime-retention-1"></script>
   <script type="module" src="./loadout-lab.js?v=hot-swap-1"></script>
   <script type="module" src="./m3-numeric-lab.js?v=m3d-1"></script>
-  <script type="module" src="./m4-itemization-lab.js?v=m4d-5"></script>
-  <script type="module" src="./m4-crafting-lab.js?v=m4d-5"></script>
+  <script type="module" src="./m4-itemization-lab.js?v=m4d-8"></script>
+  <script type="module" src="./m4-crafting-lab.js?v=m4d-8"></script>
   <script type="module" src="./projectile-volley-lab.js?v=m4c-closure-3"></script>
   <script type="module" src="./workspace-shell.js?v=m4d-1"></script>
 </body>

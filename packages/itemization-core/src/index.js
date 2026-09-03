@@ -17,7 +17,7 @@ export const SKILL_AFFIX_OPERATION = Object.freeze({
   ADD_PROJECTILE_COUNT: "add_projectile_count",
   ADD_SUMMON_COUNT: "add_summon_count",
 });
-export const CRAFTING_CURRENCY_CATEGORY = Object.freeze({ BASIC: "basic", TARGETED: "targeted", QUALITY: "quality", SOCKET: "socket", SPECIAL: "special", FRAGMENT: "fragment" });
+export const CRAFTING_CURRENCY_CATEGORY = Object.freeze({ BASIC: "basic", TARGETED: "targeted", OMEN: "omen", QUALITY: "quality", SOCKET: "socket", SPECIAL: "special", FRAGMENT: "fragment" });
 export const CRAFTING_CURRENCIES = deepFreeze([
   { id: "transmutation", name: "蜕变石", icon: "◈", category: "basic", enabled: true, description: "将普通物品升级为具有 1 个词缀的魔法物品。" },
   { id: "greater_transmutation", name: "高级蜕变石", icon: "◈", category: "basic", enabled: true, minimumModifierLevel: 32, description: "蜕变为魔法物品；按 Inf_Idle 等级轴保证新增词缀等级不低于 32。" },
@@ -37,8 +37,21 @@ export const CRAFTING_CURRENCIES = deepFreeze([
   { id: "perfect_chaos", name: "完美混沌石", icon: "☯", category: "targeted", enabled: true, minimumModifierLevel: 50, description: "替换稀有词缀；新增词缀最低等级 50。" },
   { id: "annulment", name: "剥离石", icon: "✂", category: "targeted", enabled: true, description: "随机移除物品上的 1 个词缀；可被左旋或右旋预兆定向。" },
   { id: "divine", name: "神圣石", icon: "♢", category: "targeted", enabled: true, description: "重掷物品现有词缀在当前阶级内的数值。" },
-  { id: "sinistral_omen", name: "左旋预兆", icon: "↶", category: "targeted", enabled: true, catalyst: true, compatibleCurrencyIds: ["annulment"], description: "影响下一次剥离：仅从前缀中随机移除。" },
-  { id: "dextral_omen", name: "右旋预兆", icon: "↷", category: "targeted", enabled: true, catalyst: true, compatibleCurrencyIds: ["annulment"], description: "影响下一次剥离：仅从后缀中随机移除。" },
+  { id: "sinistral_alchemy_omen", name: "左旋炼金预兆", icon: "↶", category: "omen", enabled: true, catalyst: true, omenEffect: "alchemy_max_prefixes", compatibleCurrencyIds: ["alchemy"], description: "下一次点金固定生成 3 条前缀与 1 条后缀。" },
+  { id: "dextral_alchemy_omen", name: "右旋炼金预兆", icon: "↷", category: "omen", enabled: true, catalyst: true, omenEffect: "alchemy_max_suffixes", compatibleCurrencyIds: ["alchemy"], description: "下一次点金固定生成 1 条前缀与 3 条后缀。" },
+  { id: "sinistral_coronation_omen", name: "左旋加冕预兆", icon: "↶", category: "omen", enabled: true, catalyst: true, omenEffect: "add_prefix", compatibleCurrencyIds: ["regal"], description: "下一次富豪石只会增加前缀。" },
+  { id: "dextral_coronation_omen", name: "右旋加冕预兆", icon: "↷", category: "omen", enabled: true, catalyst: true, omenEffect: "add_suffix", compatibleCurrencyIds: ["regal"], description: "下一次富豪石只会增加后缀。" },
+  { id: "homogenising_coronation_omen", name: "同质化加冕预兆", icon: "◎", category: "omen", enabled: true, catalyst: true, omenEffect: "add_matching_type", compatibleCurrencyIds: ["regal"], description: "下一次富豪石增加与装备现有词缀共享属性类型的词缀。" },
+  { id: "greater_exaltation_omen", name: "强效崇高预兆", icon: "✹", category: "omen", enabled: true, catalyst: true, omenEffect: "add_two", compatibleCurrencyIds: ["exalted"], description: "下一次崇高石连续增加 2 条词缀；不足两个空位时不可使用。" },
+  { id: "sinistral_exaltation_omen", name: "左旋崇高预兆", icon: "↶", category: "omen", enabled: true, catalyst: true, omenEffect: "add_prefix", compatibleCurrencyIds: ["exalted"], description: "下一次崇高石只会增加前缀。" },
+  { id: "dextral_exaltation_omen", name: "右旋崇高预兆", icon: "↷", category: "omen", enabled: true, catalyst: true, omenEffect: "add_suffix", compatibleCurrencyIds: ["exalted"], description: "下一次崇高石只会增加后缀。" },
+  { id: "homogenising_exaltation_omen", name: "同质化崇高预兆", icon: "◎", category: "omen", enabled: true, catalyst: true, omenEffect: "add_matching_type", compatibleCurrencyIds: ["exalted"], description: "下一次崇高石增加与装备现有词缀共享属性类型的词缀。" },
+  { id: "greater_annulment_omen", name: "强效剥离预兆", icon: "✂", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_two", compatibleCurrencyIds: ["annulment"], description: "下一次剥离石随机移除 2 条未锁定词缀。" },
+  { id: "sinistral_omen", name: "左旋剥离预兆", icon: "↶", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_prefix", compatibleCurrencyIds: ["annulment"], description: "下一次剥离石仅从前缀中随机移除。" },
+  { id: "dextral_omen", name: "右旋剥离预兆", icon: "↷", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_suffix", compatibleCurrencyIds: ["annulment"], description: "下一次剥离石仅从后缀中随机移除。" },
+  { id: "sinistral_erasure_omen", name: "左旋消抹预兆", icon: "↶", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_prefix", compatibleCurrencyIds: ["chaos"], description: "下一次混沌石仅移除一条前缀，再正常增加一条词缀。" },
+  { id: "dextral_erasure_omen", name: "右旋消抹预兆", icon: "↷", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_suffix", compatibleCurrencyIds: ["chaos"], description: "下一次混沌石仅移除一条后缀，再正常增加一条词缀。" },
+  { id: "whittling_omen", name: "消减预兆", icon: "⌄", category: "omen", enabled: true, catalyst: true, omenEffect: "remove_lowest_level", compatibleCurrencyIds: ["chaos"], description: "下一次混沌石移除可出现物品等级最低的未锁定词缀；若并列则随机选择，再正常增加一条词缀。" },
   { id: "whetstone", name: "磨刀石", icon: "▰", category: "quality", enabled: true, description: "提升战斗武器品质；品质会提高武器基础属性，最高 20%。" },
   { id: "arcanists_etcher", name: "奥术师的铭刻", icon: "▱", category: "quality", enabled: false, description: "提升法杖、长杖或权杖品质。" },
   { id: "armour_scrap", name: "护甲片", icon: "▣", category: "quality", enabled: true, description: "提升四类防具品质；品质会提高防具基础属性，最高 20%。" },
@@ -51,13 +64,20 @@ export const CRAFTING_CURRENCIES = deepFreeze([
   { id: "wisdom_scroll", name: "知识卷轴", icon: "▤", category: "special", enabled: false, description: "鉴定一件物品。" },
   { id: "chance", name: "机会石", icon: "?", category: "special", enabled: false, description: "尝试将普通物品升级为传奇物品，也可能摧毁它。" },
   { id: "mirror", name: "卡兰德的魔镜", icon: "◐", category: "special", enabled: true, serviceOperation: true, description: "复制一件指定物品；镜像副本不可再被修改。" },
-  { id: "foretelling_braid", name: "辛格拉的发辫", icon: "〽", category: "special", enabled: false, description: "预示下一次通货操作结果。" },
+  { id: "foretelling_braid", name: "辛格拉的发辫", icon: "〽", category: "special", enabled: true, serviceOperation: true, description: "让目标装备预示下一次通货操作的确定结果；下一次改造后预示消失。" },
   { id: "vaal", name: "瓦尔宝珠", icon: "◉", category: "special", enabled: true, description: "随机修改并腐化物品；腐化后不可继续基础打造。" },
-  { id: "fracturing", name: "破溃宝珠", icon: "❖", category: "special", enabled: false, description: "分裂并锁定稀有物品的随机词缀。" },
+  { id: "fracturing", name: "破溃宝珠", icon: "❖", category: "special", enabled: true, description: "分裂一件至少拥有 4 个词缀的稀有物品，永久锁定其中 1 个随机词缀。" },
   { id: "transmutation_shard", name: "蜕变石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为蜕变石。" },
   { id: "chance_shard", name: "机会石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为机会石。" },
   { id: "regal_shard", name: "富豪石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为富豪石。" },
   { id: "artificers_shard", name: "巧匠石碎片", icon: "◌", category: "fragment", enabled: false, description: "集齐后合成为巧匠石。" },
+]);
+export const VAAL_EQUIPMENT_OUTCOMES = deepFreeze([
+  { id: "corrupt_only", name: "仅腐化", weight: 30, description: "装备变为已腐化，不产生额外显性变化。" },
+  { id: "reroll_one_value", name: "重掷一条词缀数值", weight: 25, description: "随机 1 条未锁定词缀在原有数值区间内重新取值。" },
+  { id: "add_corrupted_implicit", name: "获得腐化固有属性", weight: 20, description: "获得 1 条与装备类型匹配的腐化固有属性；具体数值随物品等级变化。" },
+  { id: "scale_explicit_values", name: "扭曲显性词缀", weight: 15, description: "随机改变全部未锁定普通属性词缀，最终数值为原值的 70%～130%。" },
+  { id: "replace_one_affix", name: "替换一条词缀", weight: 10, description: "移除 1 条未锁定词缀并增加 1 条随机词缀，词缀总数不变。" },
 ]);
 export const RARITY_META = deepFreeze({
   normal: { name: "普通", color: "#f4f1e8", rank: 0, affixCount: 0 }, magic: { name: "魔法", color: "#63a9ff", rank: 1, affixCount: 2 },
@@ -66,14 +86,15 @@ export const RARITY_META = deepFreeze({
 
 const SLOT_LABELS = Object.freeze({ head: "头部", chest: "胸甲", hands: "手部", feet: "脚部", neck: "项链", ring_left: "左戒", ring_right: "右戒" });
 const TIER_ROWS = deepFreeze([
-  { tier: 8, minimumItemLevel: 1, weight: 1200, power: .45 }, { tier: 7, minimumItemLevel: 8, weight: 900, power: .60 },
-  { tier: 6, minimumItemLevel: 16, weight: 700, power: .76 }, { tier: 5, minimumItemLevel: 24, weight: 500, power: .94 },
-  { tier: 4, minimumItemLevel: 32, weight: 330, power: 1.14 }, { tier: 3, minimumItemLevel: 40, weight: 190, power: 1.36 },
-  { tier: 2, minimumItemLevel: 50, weight: 80, power: 1.61 }, { tier: 1, minimumItemLevel: 60, weight: 25, power: 1.90 },
+  { tier: 9, minimumItemLevel: 1, weight: 1200, power: .38 }, { tier: 8, minimumItemLevel: 11, weight: 1000, power: .52 },
+  { tier: 7, minimumItemLevel: 22, weight: 820, power: .68 }, { tier: 6, minimumItemLevel: 33, weight: 640, power: .84 },
+  { tier: 5, minimumItemLevel: 44, weight: 470, power: 1.02 }, { tier: 4, minimumItemLevel: 55, weight: 310, power: 1.23 },
+  { tier: 3, minimumItemLevel: 66, weight: 180, power: 1.45 }, { tier: 2, minimumItemLevel: 74, weight: 75, power: 1.68 },
+  { tier: 1, minimumItemLevel: 81, weight: 25, power: 1.90 },
 ]);
 
 function deepFreeze(value) { if (!value || typeof value !== "object" || Object.isFrozen(value)) return value; Object.values(value).forEach(deepFreeze); return Object.freeze(value); }
-function integer(value, name, minimum = 1, maximum = 60) { if (!Number.isInteger(value) || value < minimum || value > maximum) throw new RangeError(`${name} must be ${minimum}-${maximum}`); return value; }
+function integer(value, name, minimum = 1, maximum = 100) { if (!Number.isInteger(value) || value < minimum || value > maximum) throw new RangeError(`${name} must be ${minimum}-${maximum}`); return value; }
 function hashSeed(text) { let value = 2166136261; for (const char of text) value = Math.imul(value ^ char.charCodeAt(0), 16777619) >>> 0; return value || 1; }
 function weightedPick(entries, rng, weightOf = (entry) => entry.weight) { const total = entries.reduce((sum, entry) => sum + Math.max(0, weightOf(entry)), 0); if (!entries.length || total <= 0) throw new Error("weighted pool is empty"); let roll = rng.nextFloat() * total; for (const entry of entries) { roll -= Math.max(0, weightOf(entry)); if (roll <= 0) return entry; } return entries.at(-1); }
 function roundValue(value, precision = 0) { const factor = 10 ** precision; return Math.round(value * factor) / factor; }
@@ -127,6 +148,10 @@ const AFFIX_DEFINITIONS = deepFreeze([
   affix("local_quickness", "利落", "suffix", "local_attack_speed", "attackSpeedRating", "equipmentBase", 22, { domains: ["weapon"], slots: ["weapon"], scope: MOD_SCOPE.LOCAL, requiredTags: ["attack"] }),
   skillAffix("projectile_skill_level", "贯星", "prefix", "projectile_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "PROJECTILE", { valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
   skillAffix("fire_skill_level", "焰脉", "prefix", "fire_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "FIRE", { valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("melee_skill_level", "斗勇", "prefix", "melee_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "MELEE", { domains: ["weapon"], slots: ["weapon"], valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("physical_skill_level", "刚烈", "prefix", "physical_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "PHYSICAL", { domains: ["weapon"], slots: ["weapon"], valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("area_skill_level", "扩境", "prefix", "area_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "AREA", { domains: ["weapon"], slots: ["weapon"], valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
+  skillAffix("weapon_skill_level", "传承", "prefix", "weapon_skill_level", SKILL_AFFIX_OPERATION.ADD_SKILL_LEVEL, "WEAPON_SKILL", { domains: ["weapon"], slots: ["weapon"], valueForTier: (tier) => tier <= 3 ? 2 : 1 }),
   skillAffix("additional_projectile", "分裂", "suffix", "additional_projectile", SKILL_AFFIX_OPERATION.ADD_PROJECTILE_COUNT, "PROJECTILE", { valueForTier: (tier) => tier === 1 ? 2 : 1 }),
   weaponSkillAffix(),
   // 召唤运行协议尚未拥有正式技能；保留在权威词缀目录，但在召唤 Action 落地前不进入随机掉落池。
@@ -140,7 +165,7 @@ export function eligibleAffixTiers(definitionOrId, itemLevel) { integer(itemLeve
 function chooseBase(slot, itemLevel, rng, requiredTag = null) { let entries = BASE_ITEM_DEFINITIONS.filter((entry) => entry.slot === slot && entry.dropLevel <= itemLevel && (!requiredTag || entry.tags.includes(requiredTag))); if (!entries.length) entries = BASE_ITEM_DEFINITIONS.filter((entry) => entry.slot === slot && entry.dropLevel <= itemLevel); const top = Math.max(...entries.map((item) => item.dropLevel)); return weightedPick(entries, rng, (entry) => entry.spawnWeight * (entry.dropLevel === top ? 2.2 : 1)); }
 function matchesAffix(definition, domain, slot, tags) { return definition.domains.includes(domain) && definition.slots.includes(slot) && definition.requiredTags.every((tag) => tags.includes(tag)); }
 function currencyEligibleTiers(definition, itemLevel, minimumModifierLevel = 0) { const itemEligible = eligibleAffixTiers(definition, itemLevel), preferred = itemEligible.filter((tier) => tier.minimumItemLevel >= minimumModifierLevel); return preferred.length ? preferred : itemEligible.length ? [itemEligible.at(-1)] : []; }
-function rollAffix(definition, itemLevel, rng, highAttribute, forcedTier = null, minimumModifierLevel = 0) { const eligible = currencyEligibleTiers(definition, itemLevel, minimumModifierLevel); if (!eligible.length) throw Object.assign(new Error("affix family has no tier available at the item level"), { code: "NO_ELIGIBLE_AFFIX_TIER" }); const row = forcedTier === null ? weightedPick(eligible, rng, (tier) => tier.weight * (highAttribute ? (9 - tier.tier) ** 1.7 : 1)) : eligible.find((tier) => tier.tier === forcedTier) ?? eligible.at(-1); const value = row.minimum + rng.nextFloat() * (row.maximum - row.minimum); return { id: definition.id, name: definition.name, kind: definition.kind, family: definition.family, modGroup: definition.modGroup, statId: definition.statId, bucket: definition.bucket, scope: definition.scope, operation: definition.operation, unit: definition.unit, ...(definition.skillModifier ? { skillModifier: definition.skillModifier } : {}), tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: row.weight, minimum: row.minimum, maximum: row.maximum, value: roundValue(value, definition.unit === "percent" ? 3 : 0) }; }
+function rollAffix(definition, itemLevel, rng, highAttribute, forcedTier = null, minimumModifierLevel = 0) { const eligible = currencyEligibleTiers(definition, itemLevel, minimumModifierLevel); if (!eligible.length) throw Object.assign(new Error("affix family has no tier available at the item level"), { code: "NO_ELIGIBLE_AFFIX_TIER" }); const row = forcedTier === null ? weightedPick(eligible, rng, (tier) => tier.weight * (highAttribute ? (10 - tier.tier) ** 1.7 : 1)) : eligible.find((tier) => tier.tier === forcedTier) ?? eligible.at(-1); const value = row.minimum + rng.nextFloat() * (row.maximum - row.minimum); return { id: definition.id, name: definition.name, kind: definition.kind, family: definition.family, modGroup: definition.modGroup, statId: definition.statId, bucket: definition.bucket, scope: definition.scope, operation: definition.operation, unit: definition.unit, ...(definition.skillModifier ? { skillModifier: definition.skillModifier } : {}), tier: row.tier, minimumItemLevel: row.minimumItemLevel, weight: row.weight, minimum: row.minimum, maximum: row.maximum, value: roundValue(value, definition.unit === "percent" ? 3 : 0) }; }
 function rollAffixes({ domain, slot, tags, rarity, itemLevel, rng, highAttribute }) { const desired = RARITY_META[rarity].affixCount; if (!desired) return []; const perSide = rarity === ITEM_RARITY.MAGIC ? 1 : 3; const definitions = AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, domain, slot, tags)); const selected = []; const groups = new Set(); for (const kind of ["prefix", "suffix"]) while (selected.filter((entry) => entry.kind === kind).length < perSide) { const candidates = definitions.filter((entry) => entry.kind === kind && !groups.has(entry.modGroup)); if (!candidates.length) break; const definition = weightedPick(candidates, rng, (entry) => eligibleAffixTiers(entry, itemLevel).reduce((sum, tier) => sum + tier.weight, 0)); groups.add(definition.modGroup); selected.push(rollAffix(definition, itemLevel, rng, highAttribute)); } return selected.slice(0, desired); }
 function fixedUniqueAffixes(slot, itemLevel, rng) { const template = UNIQUE_DEFINITIONS[slot] ?? UNIQUE_DEFINITIONS.chest; return template.fixed.map(([id, tier]) => rollAffix(AFFIX_DEFINITIONS.find((entry) => entry.id === id), itemLevel, rng, true, tier)); }
 function makeBaseStats(definition) { return definition.baseStats.map(([statId, value]) => ({ statId, value, bucket: "equipmentBase", scope: definition.slot === "weapon" ? MOD_SCOPE.LOCAL : MOD_SCOPE.GLOBAL, operation: MOD_OPERATION.FLAT })); }
@@ -162,16 +187,43 @@ function syncWeaponSkillPrefix(item, rng) {
 function craftingDefinition(id) { return CRAFTING_CURRENCIES.find((entry) => entry.id === id); }
 function baseCurrencyId(id) { return String(id).replace(/^(greater|perfect)_/, ""); }
 function craftFailure(code, message) { throw Object.assign(new Error(message), { code }); }
-function nextCraftAffix(item, affixes, rng, minimumModifierLevel = 0) {
+const MODIFIER_TYPE_TAGS = Object.freeze({
+  life: ["life"], physical_attack_flat: ["physical", "attack"], local_physical_flat: ["physical", "attack"], local_physical_percent: ["physical", "attack"],
+  magic_attack_flat: ["magic", "attack"], physical_defense_flat: ["physical", "defense"], magic_defense: ["magic", "defense"], resource: ["resource"],
+  attack_speed: ["attack", "speed"], local_attack_speed: ["attack", "speed"], accuracy: ["attack", "accuracy"], critical: ["critical"], movement: ["movement", "speed"], haste: ["cast", "speed"],
+  projectile_skill_level: ["projectile", "skill"], additional_projectile: ["projectile", "skill"], fire_skill_level: ["fire", "skill"], melee_skill_level: ["melee", "skill"], physical_skill_level: ["physical", "skill"], area_skill_level: ["area", "skill"], weapon_skill_level: ["weapon", "skill"], additional_summon: ["summon", "skill"], weapon_skills: ["weapon", "skill"],
+});
+function modifierTypeTags(entry) { return MODIFIER_TYPE_TAGS[entry.modGroup] ?? [entry.modGroup]; }
+function nextCraftAffix(item, affixes, rng, minimumModifierLevel = 0, constraints = {}) {
   const context = itemAffixContext(item), groups = new Set(affixes.map((entry) => entry.modGroup));
   const prefixCount = affixes.filter((entry) => entry.kind === "prefix").length, suffixCount = affixes.filter((entry) => entry.kind === "suffix").length;
-  const candidates = AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, context.domain, context.slot, context.tags) && !groups.has(entry.modGroup) && (entry.kind === "prefix" ? prefixCount < 3 : suffixCount < 3) && currencyEligibleTiers(entry, item.itemLevel, minimumModifierLevel).length);
+  const matchingTypes = constraints.matchingTypes ? new Set(constraints.matchingTypes) : null;
+  const candidates = AFFIX_DEFINITIONS.filter((entry) => entry.rollEnabled !== false && matchesAffix(entry, context.domain, context.slot, context.tags) && !groups.has(entry.modGroup) && (!constraints.kind || entry.kind === constraints.kind) && (!matchingTypes || modifierTypeTags(entry).some((tag) => matchingTypes.has(tag))) && (entry.kind === "prefix" ? prefixCount < 3 : suffixCount < 3) && currencyEligibleTiers(entry, item.itemLevel, minimumModifierLevel).length);
   if (!candidates.length) craftFailure("NO_ELIGIBLE_AFFIX", "item has no eligible affix for this operation");
   const definition = weightedPick(candidates, rng, (entry) => currencyEligibleTiers(entry, item.itemLevel, minimumModifierLevel).reduce((sum, tier) => sum + tier.weight, 0));
   return rollAffix(definition, item.itemLevel, rng, false, null, minimumModifierLevel);
 }
 function addCraftAffixes(item, affixes, count, rng, minimumModifierLevel = 0) { const result = [...affixes]; while (result.length < count) result.push(nextCraftAffix(item, result, rng, minimumModifierLevel)); return result; }
+function omenAddConstraints(catalysts, affixes) {
+  const effects = new Set(catalysts.map((entry) => entry.omenEffect)), constraints = {};
+  if (effects.has("add_prefix")) constraints.kind = "prefix";
+  if (effects.has("add_suffix")) constraints.kind = "suffix";
+  if (effects.has("add_matching_type")) constraints.matchingTypes = [...new Set(affixes.flatMap(modifierTypeTags))];
+  return constraints;
+}
+function addAlchemyAffixes(item, affixes, rng, minimumModifierLevel, catalysts) {
+  const result = [...affixes];
+  const effects = new Set(catalysts.map((entry) => entry.omenEffect));
+  const targetKind = effects.has("alchemy_max_prefixes") ? "prefix" : effects.has("alchemy_max_suffixes") ? "suffix" : null;
+  while (result.length < 4) {
+    const targetCount = targetKind ? result.filter((entry) => entry.kind === targetKind).length : 0;
+    const desiredTargetCount = targetKind ? 3 : 0;
+    result.push(nextCraftAffix(item, result, rng, minimumModifierLevel, targetKind && targetCount < desiredTargetCount ? { kind: targetKind } : {}));
+  }
+  return result;
+}
 function rerollAffixValue(affix, rng) { const value = affix.minimum + rng.nextFloat() * (affix.maximum - affix.minimum); return { ...affix, value: roundValue(value, affix.unit === "percent" ? 3 : 0) }; }
+function removableAffixEntries(affixes, kind = null) { return affixes.map((entry, index) => ({ entry, index })).filter(({ entry }) => !entry.fractured && (!kind || entry.kind === kind)); }
 
 export function affixPoolForItem(item) {
   const context = itemAffixContext(item);
@@ -179,34 +231,79 @@ export function affixPoolForItem(item) {
 }
 
 export function craftItemWithCurrency(input = {}) {
-  const item = structuredClone(input.item), currency = craftingDefinition(input.currencyId), catalyst = input.catalystId ? craftingDefinition(input.catalystId) : null;
+  if (input.catalystIds != null && !Array.isArray(input.catalystIds)) craftFailure("INVALID_OMEN_LIST", "catalystIds must be an array");
+  const rawCatalystIds = input.catalystIds ?? (input.catalystId ? [input.catalystId] : []);
+  if (rawCatalystIds.some((id) => typeof id !== "string") || new Set(rawCatalystIds).size !== rawCatalystIds.length) craftFailure("INVALID_OMEN_LIST", "omen ids must be unique strings");
+  const item = structuredClone(input.item), currency = craftingDefinition(input.currencyId), catalystIds = [...rawCatalystIds], catalysts = catalystIds.map(craftingDefinition);
   if (!item?.instanceId) craftFailure("INVALID_CRAFT_ITEM", "craft target is required");
   if (!currency || !currency.enabled || currency.catalyst) craftFailure("CURRENCY_NOT_USABLE", "currency is not enabled for direct crafting");
+  if (catalysts.some((entry) => !entry || !entry.enabled || !entry.catalyst)) craftFailure("OMEN_NOT_USABLE", "selected omen is not enabled");
   if (item.mirrored) craftFailure("ITEM_MIRRORED", "mirrored items cannot be modified");
   if (item.corrupted) craftFailure("ITEM_CORRUPTED", "corrupted items cannot be modified again");
-  if (catalyst && (!catalyst.catalyst || !catalyst.compatibleCurrencyIds.includes(baseCurrencyId(currency.id)))) craftFailure("CATALYST_NOT_COMPATIBLE", "selected omen does not modify this currency");
+  if (catalysts.some((entry) => !entry.compatibleCurrencyIds.includes(baseCurrencyId(currency.id)))) craftFailure("CATALYST_NOT_COMPATIBLE", "selected omen does not modify this currency");
+  const omenGroups = catalysts.map((entry) => entry.omenEffect.startsWith("alchemy_") ? "alchemy_side" : ["add_prefix", "add_suffix"].includes(entry.omenEffect) ? "add_side" : ["remove_prefix", "remove_suffix"].includes(entry.omenEffect) ? "remove_side" : entry.omenEffect);
+  if (new Set(omenGroups).size !== omenGroups.length) craftFailure("OMEN_COMBINATION_CONFLICT", "selected omens contain conflicting effects");
   if ((currency.minimumModifierLevel ?? 0) > item.itemLevel) craftFailure("CURRENCY_LEVEL_REQUIREMENT", `item level must be at least ${currency.minimumModifierLevel}`);
   const rng = createSeededRng(hashSeed(String(input.serverSeed ?? `${item.instanceId}:${item.version}:${currency.id}`))), operation = baseCurrencyId(currency.id), minimumModifierLevel = currency.minimumModifierLevel ?? 0;
   let rarity = item.rarity, affixes = [...(item.affixes ?? [])], quality = item.quality ?? 0, corrupted = false, implicitAffixes = [...(item.implicitAffixes ?? [])], craftDelta = null;
   if (!["whetstone", "armour_scrap", "vaal"].includes(operation) && rarity === ITEM_RARITY.UNIQUE) craftFailure("ITEM_NOT_CRAFTABLE", "unique items cannot use base affix crafting");
   if (operation === "whetstone" || operation === "armour_scrap") { const valid = operation === "whetstone" ? item.category === ITEM_CATEGORY.WEAPON : item.category === ITEM_CATEGORY.EQUIPMENT && item.subtype === "armor"; if (!valid) craftFailure("QUALITY_TARGET_MISMATCH", "quality currency does not match this item type"); if (quality >= 20) craftFailure("QUALITY_AT_MAXIMUM", "item quality is already 20%"); quality = Math.min(20, quality + (rarity === ITEM_RARITY.NORMAL ? 5 : rarity === ITEM_RARITY.MAGIC ? 2 : 1)); }
-  else if (operation === "vaal") { corrupted = true; const outcome = Math.floor(rng.nextFloat() * 3); if (outcome === 1 && affixes.length) { const index = Math.floor(rng.nextFloat() * affixes.length); affixes[index] = rerollAffixValue(affixes[index], rng); } else if (outcome === 2) { const statId = item.category === ITEM_CATEGORY.WEAPON ? "physicalAttack" : "maxHp", value = Math.max(1, Math.round(item.itemLevel * (0.18 + rng.nextFloat() * 0.12))); implicitAffixes.push({ id: `corrupted_${statId}`, name: "腐化之力", kind: "implicit", statId, bucket: "equipmentBase", scope: item.category === ITEM_CATEGORY.WEAPON ? MOD_SCOPE.LOCAL : MOD_SCOPE.GLOBAL, operation: MOD_OPERATION.FLAT, unit: "flat", minimum: value, maximum: value, value }); } }
+  else if (operation === "vaal") {
+    corrupted = true;
+    const outcome = weightedPick(VAAL_EQUIPMENT_OUTCOMES, rng);
+    const removable = removableAffixEntries(affixes);
+    if (outcome.id === "reroll_one_value" && removable.length) {
+      const target = removable[Math.floor(rng.nextFloat() * removable.length)]; affixes[target.index] = rerollAffixValue(target.entry, rng);
+    } else if (outcome.id === "add_corrupted_implicit") {
+      const statId = item.category === ITEM_CATEGORY.WEAPON ? "physicalAttack" : "maxHp", value = Math.max(1, Math.round(item.itemLevel * (0.18 + rng.nextFloat() * 0.12)));
+      implicitAffixes.push({ id: `corrupted_${statId}`, name: "腐化之力", kind: "implicit", statId, bucket: "equipmentBase", scope: item.category === ITEM_CATEGORY.WEAPON ? MOD_SCOPE.LOCAL : MOD_SCOPE.GLOBAL, operation: MOD_OPERATION.FLAT, unit: "flat", minimum: value, maximum: value, value });
+    } else if (outcome.id === "scale_explicit_values") {
+      const factor = .7 + rng.nextFloat() * .6;
+      affixes = affixes.map((entry) => entry.fractured || !entry.statId ? entry : { ...entry, value: roundValue(entry.value * factor, entry.unit === "percent" ? 3 : 0), corruptedScale: roundValue(factor, 3) });
+    } else if (outcome.id === "replace_one_affix" && removable.length) {
+      const target = removable[Math.floor(rng.nextFloat() * removable.length)], removedAffix = affixes.splice(target.index, 1)[0], addedAffix = nextCraftAffix(item, affixes, rng);
+      affixes.push(addedAffix); craftDelta = { kind: "replace_one_affix", affixCountBefore: item.affixes.length, affixCountAfter: affixes.length, removedAffix, addedAffix };
+    }
+    craftDelta = { ...(craftDelta ?? {}), kind: craftDelta?.kind ?? "vaal_outcome", vaalOutcomeId: outcome.id, vaalOutcomeName: outcome.name };
+  }
   else if (operation === "transmutation") { if (rarity !== ITEM_RARITY.NORMAL) craftFailure("RARITY_MISMATCH", "transmutation requires a normal item"); rarity = ITEM_RARITY.MAGIC; affixes = addCraftAffixes(item, [], 1, rng, minimumModifierLevel); }
   else if (operation === "augmentation") { if (rarity !== ITEM_RARITY.MAGIC || affixes.length >= 2) craftFailure("RARITY_MISMATCH", "augmentation requires a magic item with an open affix"); affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
-  else if (operation === "regal") { if (rarity !== ITEM_RARITY.MAGIC) craftFailure("RARITY_MISMATCH", "regal requires a magic item"); rarity = ITEM_RARITY.RARE; affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
-  else if (operation === "alchemy") { if (![ITEM_RARITY.NORMAL, ITEM_RARITY.MAGIC].includes(rarity)) craftFailure("RARITY_MISMATCH", "alchemy requires a normal or magic item"); rarity = ITEM_RARITY.RARE; affixes = addCraftAffixes(item, affixes, 4, rng, minimumModifierLevel); }
-  else if (operation === "exalted") { if (rarity !== ITEM_RARITY.RARE || affixes.length >= 6) craftFailure("RARITY_MISMATCH", "exalted requires a rare item with an open affix"); affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel)); }
-  else if (operation === "annulment") { if (!affixes.length) craftFailure("NO_AFFIX_TO_REMOVE", "item has no affix to remove"); const kind = catalyst?.id === "sinistral_omen" ? "prefix" : catalyst?.id === "dextral_omen" ? "suffix" : null; const candidates = affixes.map((entry, index) => ({ entry, index })).filter(({ entry }) => !kind || entry.kind === kind); if (!candidates.length) craftFailure("OMEN_TARGET_EMPTY", "the selected omen has no matching affix to remove"); affixes.splice(candidates[Math.floor(rng.nextFloat() * candidates.length)].index, 1); }
+  else if (operation === "regal") { if (rarity !== ITEM_RARITY.MAGIC) craftFailure("RARITY_MISMATCH", "regal requires a magic item"); rarity = ITEM_RARITY.RARE; affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel, omenAddConstraints(catalysts, affixes))); }
+  else if (operation === "alchemy") { if (![ITEM_RARITY.NORMAL, ITEM_RARITY.MAGIC].includes(rarity)) craftFailure("RARITY_MISMATCH", "alchemy requires a normal or magic item"); rarity = ITEM_RARITY.RARE; affixes = addAlchemyAffixes(item, affixes, rng, minimumModifierLevel, catalysts); }
+  else if (operation === "exalted") {
+    const addCount = catalysts.some((entry) => entry.omenEffect === "add_two") ? 2 : 1;
+    if (rarity !== ITEM_RARITY.RARE || affixes.length + addCount > 6) craftFailure("RARITY_MISMATCH", `exalted requires a rare item with ${addCount} open affix slot(s)`);
+    for (let index = 0; index < addCount; index += 1) affixes.push(nextCraftAffix(item, affixes, rng, minimumModifierLevel, omenAddConstraints(catalysts, affixes)));
+  }
+  else if (operation === "annulment") {
+    if (!affixes.length) craftFailure("NO_AFFIX_TO_REMOVE", "item has no affix to remove");
+    const effects = new Set(catalysts.map((entry) => entry.omenEffect));
+    const removeCount = effects.has("remove_two") ? 2 : 1, kind = effects.has("remove_prefix") ? "prefix" : effects.has("remove_suffix") ? "suffix" : null;
+    const removedAffixes = [];
+    for (let index = 0; index < removeCount; index += 1) { const candidates = removableAffixEntries(affixes, kind); if (!candidates.length) craftFailure("OMEN_TARGET_EMPTY", "the selected omen has no removable matching affix"); removedAffixes.push(affixes.splice(candidates[Math.floor(rng.nextFloat() * candidates.length)].index, 1)[0]); }
+    craftDelta = { kind: "remove_affixes", removedAffixes };
+  }
   else if (operation === "chaos") {
     if (rarity !== ITEM_RARITY.RARE || !affixes.length) craftFailure("RARITY_MISMATCH", "chaos requires a rare item with affixes");
-    const removedAffix = affixes.splice(Math.floor(rng.nextFloat() * affixes.length), 1)[0];
+    const effects = new Set(catalysts.map((entry) => entry.omenEffect));
+    const kind = effects.has("remove_prefix") ? "prefix" : effects.has("remove_suffix") ? "suffix" : null;
+    let removable = removableAffixEntries(affixes, kind); if (!removable.length) craftFailure("NO_AFFIX_TO_REMOVE", "item has no removable affix matching this omen");
+    if (effects.has("remove_lowest_level")) { const lowestLevel = Math.min(...removable.map(({ entry }) => entry.minimumItemLevel ?? 1)); removable = removable.filter(({ entry }) => (entry.minimumItemLevel ?? 1) === lowestLevel); }
+    const removedAffix = affixes.splice(removable[Math.floor(rng.nextFloat() * removable.length)].index, 1)[0];
     const addedAffix = nextCraftAffix(item, affixes, rng, minimumModifierLevel);
     affixes.push(addedAffix);
     craftDelta = { kind: "replace_one_affix", affixCountBefore: item.affixes.length, affixCountAfter: affixes.length, removedAffix, addedAffix };
   }
-  else if (operation === "divine") { if (!affixes.length) craftFailure("NO_AFFIX_TO_REROLL", "item has no affix values to reroll"); affixes = affixes.map((entry) => entry.operation === "grant_weapon_skills" ? entry : rerollAffixValue(entry, rng)); }
+  else if (operation === "divine") { if (!affixes.length) craftFailure("NO_AFFIX_TO_REROLL", "item has no affix values to reroll"); affixes = affixes.map((entry) => entry.fractured || entry.operation === "grant_weapon_skills" ? entry : rerollAffixValue(entry, rng)); }
+  else if (operation === "fracturing") {
+    if (rarity !== ITEM_RARITY.RARE || affixes.length < 4) craftFailure("FRACTURE_REQUIREMENT", "fracturing requires a rare item with at least four affixes");
+    if (affixes.some((entry) => entry.fractured)) craftFailure("ITEM_ALREADY_FRACTURED", "item already has a fractured affix");
+    const index = Math.floor(rng.nextFloat() * affixes.length); affixes[index] = { ...affixes[index], fractured: true };
+    craftDelta = { kind: "fracture_affix", fracturedAffix: affixes[index] };
+  }
   else craftFailure("CURRENCY_NOT_IMPLEMENTED", "currency has no base-affix implementation");
-  const crafted = syncWeaponSkillPrefix({ ...item, rarity, affixes, implicitAffixes, quality, corrupted, version: (item.version ?? 1) + 1, craftHistory: [...(item.craftHistory ?? []), { currencyId: currency.id, catalystId: catalyst?.id ?? null, resultingRarity: rarity, resultingAffixCount: affixes.length, resultingQuality: quality, corrupted, ...(craftDelta ? { delta: craftDelta } : {}) }] }, rng);
+  affixes = [...affixes.filter((entry) => entry.kind === "prefix"), ...affixes.filter((entry) => entry.kind === "suffix")];
+  const crafted = syncWeaponSkillPrefix({ ...item, rarity, affixes, implicitAffixes, quality, corrupted, version: (item.version ?? 1) + 1, craftHistory: [...(item.craftHistory ?? []), { currencyId: currency.id, catalystId: catalystIds[0] ?? null, catalystIds, resultingRarity: rarity, resultingAffixCount: affixes.length, resultingQuality: quality, corrupted, ...(craftDelta ? { delta: craftDelta } : {}) }] }, rng);
   return deepFreeze(crafted);
 }
 
